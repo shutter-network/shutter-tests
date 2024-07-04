@@ -19,4 +19,21 @@
 
 # Go workspace file
 go.work
-go.work.sum
+src/bin/
+.idea/
+
+# docker compose
+docker/.env
+
+# macOS
+.DS_Store
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+
+#env
+src/.env
+.env
