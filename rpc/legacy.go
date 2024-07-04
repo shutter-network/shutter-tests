@@ -24,6 +24,8 @@ func SendLegacyTx(clientURL string) {
 	}
 
 	fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
+	log.Println("Sending transaction from: " + fromAddress.String())
+
 	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
 		log.Fatalf("Failed to get nonce: %v", err)
