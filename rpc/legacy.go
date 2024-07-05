@@ -36,7 +36,7 @@ func SendLegacyTx(clientURL string) {
 	gasPrice := big.NewInt(4000000000)
 
 	toAddress := fromAddress
-	data := make([]byte, 1)
+	data := make([]byte, 4)
 	_, err = rand.Read(data)
 	if err != nil {
 		log.Fatal(err)
@@ -72,7 +72,7 @@ func SendLegacyTx(clientURL string) {
 
 	err = client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
-		log.Fatalf("Failed to send transaction: %v", err)
+		fmt.Printf("Failed to send transaction: %v", err)
 	}
 
 	fmt.Printf("Transaction sent: %s\n", signedTx.Hash().Hex())
