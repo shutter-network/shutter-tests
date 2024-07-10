@@ -33,7 +33,11 @@ func SendLegacyTx(clientURL string) {
 
 	value := big.NewInt(140000000000) // in wei (0.01 eth)
 	gasLimit := uint64(50000)         // in units
-	gasPrice := big.NewInt(4000000000)
+	//gasPrice := big.NewInt(4000000000)
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	toAddress := fromAddress
 	data := make([]byte, 4)
