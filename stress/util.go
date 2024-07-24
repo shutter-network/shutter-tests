@@ -25,18 +25,19 @@ import (
 
 // contains all the setup required to interact with the chain
 type StressSetup struct {
-	Client               *ethclient.Client
-	SignerForChain       types.Signer
-	ChainID              *big.Int
-	SubmitSign           bind.SignerFn
-	SubmitPrivateKey     *ecdsa.PrivateKey
-	SubmitFromAddress    common.Address
-	TransactSign         bind.SignerFn
-	TransactPrivateKey   *ecdsa.PrivateKey
-	TransactFromAddress  common.Address
-	Sequencer            sequencerBindings.Sequencer
-	KeyperSetManager     shopContractBindings.KeyperSetManager
-	KeyBroadcastContract shopContractBindings.KeyBroadcastContract
+	Client                   *ethclient.Client
+	SignerForChain           types.Signer
+	ChainID                  *big.Int
+	SubmitSign               bind.SignerFn
+	SubmitPrivateKey         *ecdsa.PrivateKey
+	SubmitFromAddress        common.Address
+	TransactSign             bind.SignerFn
+	TransactPrivateKey       *ecdsa.PrivateKey
+	TransactFromAddress      common.Address
+	Sequencer                sequencerBindings.Sequencer
+	SequencerContractAddress common.Address
+	KeyperSetManager         shopContractBindings.KeyperSetManager
+	KeyBroadcastContract     shopContractBindings.KeyBroadcastContract
 }
 
 // contains the context for the current stress test to create transactions

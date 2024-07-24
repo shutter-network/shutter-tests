@@ -33,21 +33,22 @@ func skipCI(t *testing.T) {
 	}
 }
 
-// the ethereum address of the key broadcast contract
-const KeyBroadcastContractAddress = "0x1FD85EfeC5FC18f2f688f82489468222dfC36d6D"
-
-// the ethereum address of the sequencer contract
-const SequencerContractAddress = "0xd073BD5A717Dce1832890f2Fdd9F4fBC4555e41A"
-
-// the ethereum address of the keyper set manager contract
-const KeyperSetManagerContractAddress = "0x7Fbc29C682f59f809583bFEE0fc50F1e4eb77774"
-
-const RpcUrl = "https://rpc.chiado.gnosis.gateway.fm"
-
 const KeyperSetChangeLookAhead = 2
+
+func readStringFromEnv(envName string) (string, error) {
+	value := os.Getenv(envName)
+	if len(value) < 2 {
+		return "", fmt.Errorf("Could not read %v from environment. See README for details!", envName)
+	}
+	return value, nil
+}
 
 func createSetup(fundNewAccount bool) (StressSetup, error) {
 	setup := new(StressSetup)
+	RpcUrl, err := readStringFromEnv("STRESS_TEST_RPC_URL")
+	if err != nil {
+		return *setup, err
+	}
 	client, err := ethclient.Dial(RpcUrl)
 	if err != nil {
 		return *setup, fmt.Errorf("could not create client %v", err)
@@ -64,9 +65,9 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	signerForChain := types.LatestSignerForChainID(chainID)
 	setup.SignerForChain = signerForChain
 
-	submitKeyHex := os.Getenv("STRESS_TEST_PK")
-	if len(submitKeyHex) < 64 {
-		return *setup, errors.New("private key hex must be in environment variable STRESS_TEST_PK")
+	submitKeyHex, err := readStringFromEnv("STRESS_TEST_PK")
+	if err != nil {
+		return *setup, err
 	}
 	submitPrivateKey, err := crypto.HexToECDSA(submitKeyHex)
 	if err != nil {
@@ -155,12 +156,20 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		}
 		log.Println("Funding complete")
 	}
+	KeyperSetManagerContractAddress, err := readStringFromEnv("STRESS_TEST_KEYPER_SET_MANAGER_CONTRACT_ADDRESS")
+	if err != nil {
+		return *setup, err
+	}
 	keyperSetManagerContract, err := shopContractBindings.NewKeyperSetManager(common.HexToAddress(KeyperSetManagerContractAddress), client)
 	if err != nil {
 		return *setup, fmt.Errorf("can not get KeyperSetManager %v", err)
 	}
 	setup.KeyperSetManager = *keyperSetManagerContract
 
+	KeyBroadcastContractAddress, err := readStringFromEnv("STRESS_TEST_KEY_BROADCAST_CONTRACT_ADDRESS")
+	if err != nil {
+		return *setup, err
+	}
 	keyBroadcastContract, err := shopContractBindings.NewKeyBroadcastContract(common.HexToAddress(KeyBroadcastContractAddress), client)
 	if err != nil {
 		return *setup, fmt.Errorf("can not get KeyBrodcastContract %v", err)
@@ -168,6 +177,11 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 
 	setup.KeyBroadcastContract = *keyBroadcastContract
 
+	SequencerContractAddress, err := readStringFromEnv("STRESS_TEST_SEQUENCER_CONTRACT_ADDRESS")
+	if err != nil {
+		return *setup, err
+	}
+	setup.SequencerContractAddress = common.HexToAddress(SequencerContractAddress)
 	sequencerContract, err := sequencerBindings.NewSequencer(common.HexToAddress(SequencerContractAddress), client)
 	if err != nil {
 		return *setup, fmt.Errorf("can not get SequencerContract %v", err)
@@ -662,10 +676,10 @@ func TestInception(t *testing.T) {
 		log.Fatal(err)
 	}
 	gasFeeCap, gasTipCap = env.TransactGasPriceFn(price, tip, 0, 1)
-	sequencerAddress := common.HexToAddress(SequencerContractAddress)
+
 	middleCallMsg := ethereum.CallMsg{
 		From:  setup.TransactFromAddress,
-		To:    &sequencerAddress,
+		To:    &setup.SequencerContractAddress,
 		Value: signedInnerTx.Cost(),
 		Data:  input,
 	}
@@ -681,7 +695,7 @@ func TestInception(t *testing.T) {
 			GasFeeCap: gasFeeCap,
 			GasTipCap: gasTipCap,
 			Gas:       middleGasLimit,
-			To:        &sequencerAddress,
+			To:        &setup.SequencerContractAddress,
 			Value:     big.NewInt(0).Sub(signedInnerTx.Cost(), signedInnerTx.Value()),
 			Data:      input,
 		},
