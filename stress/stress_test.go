@@ -254,7 +254,7 @@ func decreasingGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.In
 	return gasFeeCap, suggestedGasTipCap
 }
 
-func defaultGasLimitFn(value *big.Int, data []byte, toAddress *common.Address, i int, count int) uint64 {
+func defaultGasLimitFn(data []byte, toAddress *common.Address, i int, count int) uint64 {
 	return uint64(21000)
 }
 
@@ -325,7 +325,7 @@ func getEonKey(ctx context.Context, setup StressSetup) (uint64, *shcrypto.EonPub
 
 }
 
-func createIdentity() (shcrypto.Block, error) {
+func createIdentityPrefix() (shcrypto.Block, error) {
 	identityPrefix, err := shcrypto.RandomSigma(cryptorand.Reader)
 	if err != nil {
 		return shcrypto.Block{}, fmt.Errorf("could not get random identityPrefix %v", err)
@@ -344,7 +344,7 @@ func encrypt(ctx context.Context, tx types.Transaction, env *StressEnvironment, 
 	if i < len(env.IdentityPrefixes) {
 		identityPrefix = env.IdentityPrefixes[i]
 	} else {
-		identityPrefix, err = createIdentity()
+		identityPrefix, err = createIdentityPrefix()
 
 		if err != nil {
 			return nil, identityPrefix, err
@@ -415,7 +415,7 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 
 	identityPrefixes := env.IdentityPrefixes
 	for i := len(identityPrefixes); i < count; i++ {
-		identity, err := createIdentity()
+		identity, err := createIdentityPrefix()
 		if err != nil {
 			return err
 		}
@@ -426,7 +426,7 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 
 	for i := 0; i < count; i++ {
 		gasFeeCap, suggestedGasTipCap := env.TransactGasPriceFn(suggestedGasTipCap, suggestedGasPrice, i, count)
-		gasLimit := env.TransactGasLimitFn(value, data, &toAddress, i, count)
+		gasLimit := env.TransactGasLimitFn(data, &toAddress, i, count)
 		innerNonce := env.TransactStartingNonce.Uint64() + uint64(i)
 		tx := types.NewTx(
 			&types.DynamicFeeTx{
@@ -546,7 +546,7 @@ func TestStressDualDuplicatePrefix(t *testing.T) {
 	if err != nil {
 		log.Fatal("could not set up environment", err)
 	}
-	prefix, err := createIdentity()
+	prefix, err := createIdentityPrefix()
 	if err != nil {
 		log.Fatal("error creating prefix", err)
 	}
@@ -587,7 +587,7 @@ func TestStressExceedEncryptedGasLimit(t *testing.T) {
 		log.Fatal("could not set up environment", err)
 	}
 
-	env.TransactGasLimitFn = func(value *big.Int, data []byte, toAddress *common.Address, i, count int) uint64 {
+	env.TransactGasLimitFn = func(data []byte, toAddress *common.Address, i, count int) uint64 {
 		// last consumes over the limit
 		if count-i == 1 {
 			return uint64(1_000_000 - (i * 21_000) + 1)

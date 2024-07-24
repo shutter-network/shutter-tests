@@ -61,7 +61,7 @@ type StressEnvironment struct {
 type GasFeeCap *big.Int
 type GasTipCap *big.Int
 
-type GasLimitFn func(value *big.Int, data []byte, toAddress *common.Address, i int, count int) uint64
+type GasLimitFn func(data []byte, toAddress *common.Address, i int, count int) uint64
 
 type GasPriceFn func(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (GasFeeCap, GasTipCap)
 
