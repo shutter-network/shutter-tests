@@ -1,0 +1,15 @@
+version: '3.8'
+name: transaction_testing
+services:
+  transaction_testing:
+    build:
+      context: .
+      shm_size: '2g'
+    container_name: transaction_testing
+    restart: always
+    environment:
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - MODE=${MODE}
+      - CHIADO_TICK_INTERVAL=${CHIADO_TICK_INTERVAL}
+      - GNOSIS_TICK_INTERVAL=${GNOSIS_TICK_INTERVAL}
+    command: ./main
