@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/shutter-network/nethermind-tests/rpc"
 	"log"
 	"strings"
@@ -10,6 +9,7 @@ import (
 )
 
 func main() {
+	rpc.InitEnv()
 	mode := rpc.LoadMode()
 	modes := strings.Split(mode, ",")
 
@@ -36,8 +36,9 @@ func main() {
 }
 
 func runChiadoTransactions() {
-	fmt.Println("Running Chiado transactions...")
-	tick := time.NewTicker(5 * time.Second)
+	interval := rpc.GetEnvAsInt("CHIADO_SEND_INTERVAL", 5)
+	log.Printf("Running Chiado transactions at an interval of [%d] seconds", interval)
+	tick := time.NewTicker(time.Duration(interval) * time.Second)
 
 	for range tick.C {
 		rpc.SendLegacyTx("https://erpc.chiado.staging.shutter.network")
@@ -45,8 +46,9 @@ func runChiadoTransactions() {
 }
 
 func runGnosisTransactions() {
-	fmt.Println("Running Gnosis transactions...")
-	tick := time.NewTicker(1 * time.Minute)
+	interval := rpc.GetEnvAsInt("GNOSIS_SEND_INTERVAL", 60)
+	log.Printf("Running Gnosis transactions at an interval of [%d] seconds", interval)
+	tick := time.NewTicker(time.Duration(interval) * time.Second)
 
 	for range tick.C {
 		rpc.SendLegacyTx("https://erpc.gnosis.shutter.network")
