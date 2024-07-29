@@ -31,7 +31,7 @@ func SendLegacyTx(clientURL string) {
 		log.Fatalf("Failed to get nonce: %v", err)
 	}
 
-	value := big.NewInt(1)    // in wei (0.01 eth)
+	value := big.NewInt(1)    // in wei
 	gasLimit := uint64(21000) // in units
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
