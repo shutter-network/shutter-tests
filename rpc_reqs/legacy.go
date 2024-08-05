@@ -1,0 +1,92 @@
+package rpc_reqs
+
+import (
+	"context"
+	"crypto/rand"
+	"fmt"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"log"
+	"math/big"
+)
+
+func SendLegacyTx(clientURL string, pKey string) (string, uint64, error) {
+	client, err := ethclient.Dial(clientURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to the Ethereum client: %v", err)
+		return "", 0, err
+	}
+
+	privateKey, err := crypto.HexToECDSA(pKey)
+	if err != nil {
+		log.Fatalf("Failed to load private key: %v", err)
+		return "", 0, err
+	}
+
+	fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
+	log.Println("Sending transaction from: " + fromAddress.String())
+
+	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
+	if err != nil {
+		log.Fatalf("Failed to get nonce: %v", err)
+		return "", 0, err
+	}
+
+	value := big.NewInt(1)    // in wei
+	gasLimit := uint64(21000) // in units
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		log.Fatal(err)
+		return "", 0, err
+	}
+
+	toAddress := fromAddress
+	data := make([]byte, 0)
+	_, err = rand.Read(data)
+	if err != nil {
+		log.Fatal(err)
+		return "", 0, err
+	}
+
+	chainID, err := client.NetworkID(context.Background())
+	if err != nil {
+		log.Fatalf("Failed to get chain ID: %v", err)
+		return "", 0, err
+	}
+
+	tx := types.NewTx(&types.LegacyTx{
+		Nonce:    nonce,
+		To:       &toAddress,
+		Value:    value,
+		Gas:      gasLimit,
+		GasPrice: gasPrice,
+		Data:     data,
+	})
+
+	signer := types.NewLondonSigner(chainID)
+
+	signedTx, err := types.SignTx(tx, signer, privateKey)
+	if err != nil {
+		log.Fatalf("Failed to sign transaction: %v", err)
+		return "", 0, err
+	}
+
+	rawTxBytes, err := signedTx.MarshalJSON()
+	if err != nil {
+		log.Fatalf("Failed to marshal signed transaction: %v", err)
+		return "", 0, err
+	}
+
+	fmt.Printf("Signed transaction: %s\n", rawTxBytes)
+
+	err = client.SendTransaction(context.Background(), signedTx)
+	if err != nil {
+		fmt.Printf("Failed to send transaction: %v", err)
+		return "", 0, err
+	}
+
+	txHash := signedTx.Hash().Hex()
+	fmt.Printf("Transaction sent: %s\n", txHash)
+	return txHash, nonce, nil
+}

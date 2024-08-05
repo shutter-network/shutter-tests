@@ -1,16 +1,18 @@
 package main
 
 import (
-	"github.com/shutter-network/nethermind-tests/rpc"
+	"fmt"
+	"github.com/shutter-network/nethermind-tests/config"
+	"github.com/shutter-network/nethermind-tests/tests"
 	"log"
 	"strings"
 	"sync"
-	"time"
 )
 
 func main() {
-	rpc.InitEnv()
-	mode := rpc.LoadMode()
+	cfg := config.LoadConfig()
+	fmt.Println(cfg.Mode)
+	mode := cfg.Mode
 	modes := strings.Split(mode, ",")
 
 	var wg sync.WaitGroup
@@ -19,13 +21,19 @@ func main() {
 		case "chiado":
 			wg.Add(1)
 			go func() {
-				runChiadoTransactions()
+				tests.RunChiadoTransactions(cfg)
 				wg.Done()
 			}()
 		case "gnosis":
 			wg.Add(1)
 			go func() {
-				runGnosisTransactions()
+				tests.RunGnosisTransactions(cfg)
+				wg.Done()
+			}()
+		case "send-wait":
+			wg.Add(1)
+			go func() {
+				tests.RunSendAndWaitTest(cfg)
 				wg.Done()
 			}()
 		default:
@@ -33,24 +41,4 @@ func main() {
 		}
 	}
 	wg.Wait()
-}
-
-func runChiadoTransactions() {
-	interval := rpc.GetEnvAsInt("CHIADO_SEND_INTERVAL", 5)
-	log.Printf("Running Chiado transactions at an interval of [%d] seconds", interval)
-	tick := time.NewTicker(time.Duration(interval) * time.Second)
-
-	for range tick.C {
-		rpc.SendLegacyTx("https://erpc.chiado.staging.shutter.network")
-	}
-}
-
-func runGnosisTransactions() {
-	interval := rpc.GetEnvAsInt("GNOSIS_SEND_INTERVAL", 60)
-	log.Printf("Running Gnosis transactions at an interval of [%d] seconds", interval)
-	tick := time.NewTicker(time.Duration(interval) * time.Second)
-
-	for range tick.C {
-		rpc.SendLegacyTx("https://erpc.gnosis.shutter.network")
-	}
 }
