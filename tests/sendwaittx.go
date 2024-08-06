@@ -20,8 +20,6 @@ func SendAndCheckTransaction(cfg config.Config) bool {
 	result := rpc_reqs.WaitForReceipt(cfg.NodeURL, signedTx.Hash().Hex(), cfg.Timeout)
 
 	if result == false { // we didn't receive the transaction within the timeout
-		log.Printf("Transaction not received within timeout: %s. "+
-			"Cancelling transaction.", signedTx.Hash().Hex())
 		err := rpc_reqs.CancelTx(cfg, nonce)
 		if err != nil {
 			log.Printf("Cancelling transaction failed with error: %s. "+
