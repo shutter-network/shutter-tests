@@ -17,7 +17,10 @@ func SendAndCheckTransaction(cfg config.Config) bool {
 	}
 
 	nonce := signedTx.Nonce()
-	result := rpc_reqs.WaitForReceipt(cfg.NodeURL, signedTx.Hash().Hex(), cfg.Timeout)
+	result, err := rpc_reqs.WaitForReceipt(cfg.NodeURL, signedTx.Hash().Hex(), cfg.Timeout)
+	if err != nil {
+		log.Fatalf("Wait receipt failed with error %s", err)
+	}
 
 	if result == false { // we didn't receive the transaction within the timeout
 		err := rpc_reqs.CancelTx(cfg, nonce)
