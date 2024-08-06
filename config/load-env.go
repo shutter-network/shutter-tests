@@ -32,26 +32,22 @@ func LoadConfig() Config {
 		Mode:               os.Getenv("MODE"),
 		PrivateKey:         os.Getenv("PRIVATE_KEY"),
 		ChiadoURL:          os.Getenv("CHIADO_URL"),
-		ChiadoSendInterval: time.Duration(GetEnvAsInt("CHIADO_SEND_INTERVAL", 60)) * time.Second,
+		ChiadoSendInterval: time.Duration(GetEnvAsInt("CHIADO_SEND_INTERVAL")) * time.Second,
 		GnosisURL:          os.Getenv("GNOSIS_URL"),
-		GnosisSendInterval: time.Duration(GetEnvAsInt("GNOSIS_SEND_INTERVAL", 600)) * time.Second,
-		Timeout:            time.Duration(GetEnvAsInt("WAIT_TX_TIMEOUT", 120)) * time.Second,
-		TestDuration:       time.Duration(GetEnvAsInt("TEST_DURATION", 600)) * time.Second,
+		GnosisSendInterval: time.Duration(GetEnvAsInt("GNOSIS_SEND_INTERVAL")) * time.Second,
+		Timeout:            time.Duration(GetEnvAsInt("WAIT_TX_TIMEOUT")) * time.Second,
+		TestDuration:       time.Duration(GetEnvAsInt("TEST_DURATION")) * time.Second,
 		NodeURL:            os.Getenv("NODE_URL"),
 	}
 
 	return config
 }
 
-func GetEnvAsInt(name string, defaultVal int) int {
+func GetEnvAsInt(name string) int {
 	valueStr := os.Getenv(name)
-	if valueStr == "" {
-		return defaultVal
-	}
 	value, err := strconv.Atoi(valueStr)
 	if err != nil {
-		log.Printf("Invalid value for %s: %v. Using default: %d", name, err, defaultVal)
-		return defaultVal
+		log.Fatalf("Invalid value for %s: %v.", name, err)
 	}
 	return value
 }
