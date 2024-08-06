@@ -1,8 +1,7 @@
-package rpc
+package requests
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -11,16 +10,15 @@ import (
 	"math/big"
 )
 
-func SendLegacyTx(clientURL string) {
+func SendLegacyTx(clientURL string, pKey string) (*types.Transaction, error) {
 	client, err := ethclient.Dial(clientURL)
 	if err != nil {
-		log.Fatalf("Failed to connect to the Ethereum client: %v", err)
+		return nil, fmt.Errorf("failed to connect to the Ethereum client: %w", err)
 	}
 
-	pKey := LoadPrivateKey()
 	privateKey, err := crypto.HexToECDSA(pKey)
 	if err != nil {
-		log.Fatalf("Failed to load private key: %v", err)
+		return nil, fmt.Errorf("failed to load private key: %w", err)
 	}
 
 	fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
@@ -28,26 +26,22 @@ func SendLegacyTx(clientURL string) {
 
 	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
-		log.Fatalf("Failed to get nonce: %v", err)
+		return nil, fmt.Errorf("failed to get nonce: %w", err)
 	}
 
 	value := big.NewInt(1)    // in wei
 	gasLimit := uint64(21000) // in units
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to get suggested gas price: %w", err)
 	}
 
 	toAddress := fromAddress
 	data := make([]byte, 0)
-	_, err = rand.Read(data)
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
-		log.Fatalf("Failed to get chain ID: %v", err)
+		return nil, fmt.Errorf("failed to chain ID: %w", err)
 	}
 
 	tx := types.NewTx(&types.LegacyTx{
@@ -63,20 +57,22 @@ func SendLegacyTx(clientURL string) {
 
 	signedTx, err := types.SignTx(tx, signer, privateKey)
 	if err != nil {
-		log.Fatalf("Failed to sign transaction: %v", err)
+		return nil, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
 	rawTxBytes, err := signedTx.MarshalJSON()
 	if err != nil {
-		log.Fatalf("Failed to marshal signed transaction: %v", err)
+		return nil, fmt.Errorf("failed to marshall transaction: %w", err)
 	}
 
 	fmt.Printf("Signed transaction: %s\n", rawTxBytes)
 
 	err = client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
-		fmt.Printf("Failed to send transaction: %v", err)
+		return nil, fmt.Errorf("failed to send transaction: %w", err)
 	}
 
-	fmt.Printf("Transaction sent: %s\n", signedTx.Hash().Hex())
+	txHash := signedTx.Hash().Hex()
+	fmt.Printf("Transaction sent: %s\n", txHash)
+	return signedTx, nil
 }
