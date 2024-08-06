@@ -17,7 +17,8 @@ func SendAndCheckTransaction(cfg config.Config) bool {
 	}
 
 	nonce := signedTx.Nonce()
-	result, err := rpc_reqs.WaitForReceipt(cfg.NodeURL, signedTx.Hash().Hex(), cfg.Timeout)
+	result := rpc_reqs.WaitForReceipt(cfg.NodeURL, signedTx.Hash().Hex(), cfg.Timeout)
+
 	if result == false { // we didn't receive the transaction within the timeout
 		err := rpc_reqs.CancelTx(cfg, nonce)
 		if err != nil {
@@ -34,19 +35,17 @@ func SendAndCheckTransaction(cfg config.Config) bool {
 			fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
 			log.Println("Sending transaction from: " + fromAddress.String())
 
-			// check pending nonce if it is nonce + 1 return false
-			log.Println("Checking pending nonce")
 			pendingNonce, err := client.PendingNonceAt(context.Background(), fromAddress)
 			if err != nil {
-				return false
+				log.Fatalf("Failed to get pending nonce: %v", err)
 			}
+
 			if pendingNonce == nonce+1 {
-				log.Println("Pending nonce == nonce + 1")
+				log.Printf("Pending nonce [%d] == nonce [%d] + 1", pendingNonce, nonce)
 				return false
 			}
 		}
 	}
-
 	return true
 }
 

@@ -2,6 +2,8 @@ package rpc_reqs
 
 import (
 	"context"
+	"errors"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -9,11 +11,10 @@ import (
 	"time"
 )
 
-func WaitForReceipt(clientURL string, txHash string, timeout time.Duration) (bool, error) {
+func WaitForReceipt(clientURL string, txHash string, timeout time.Duration) (result bool) {
 	client, err := ethclient.Dial(clientURL)
 	if err != nil {
-		log.Fatalf("Failed to connect to the Ethereum client: %v", err)
-		return false, err
+		log.Fatalf("Failed to connect to client %s", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -24,16 +25,20 @@ func WaitForReceipt(clientURL string, txHash string, timeout time.Duration) (boo
 		if err == nil {
 			if receipt.Status == types.ReceiptStatusFailed {
 				log.Printf("Transaction failed: %s", txHash)
-				return false, nil
+				return false
 			}
 			log.Printf("Transaction succeeded: %s", txHash)
-			return true, nil
+			return true
+		}
+
+		if !errors.Is(err, ethereum.NotFound) {
+			log.Fatalf("Receipt retrieval failed %s", err)
 		}
 
 		select {
 		case <-ctx.Done():
 			log.Printf("Timeout waiting for transaction receipt: %s", txHash)
-			return false, ctx.Err()
+			return false
 		case <-time.After(1 * time.Second):
 			// Wait before retrying
 		}
