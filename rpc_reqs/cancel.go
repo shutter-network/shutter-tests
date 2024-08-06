@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/shutter-network/nethermind-tests/config"
-	"log"
 	"math/big"
 )
 
@@ -16,13 +15,13 @@ func CancelTx(config config.Config, nonce uint64) error {
 	fmt.Println("Cancelling transaction")
 	client, err := ethclient.Dial(config.NodeURL)
 	if err != nil {
-		log.Fatalf("Failed to connect to the Ethereum client: %v", err)
+		return fmt.Errorf("failed to connect to the Ethereum client: %w", err)
 	}
 
 	pKey := config.PrivateKey
 	privateKey, err := crypto.HexToECDSA(pKey)
 	if err != nil {
-		log.Fatalf("Failed to load private key: %v", err)
+		return fmt.Errorf("failed to load private key: %w", err)
 	}
 
 	value := big.NewInt(0)    // in wei
@@ -30,7 +29,7 @@ func CancelTx(config config.Config, nonce uint64) error {
 
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
-		log.Fatalf("Failed to get suggested gas price: %v", err)
+		return fmt.Errorf("failed to get suggested gas price: %w", err)
 	}
 
 	toAddress := common.HexToAddress("0x0000000000000000000000000000000000000000")
@@ -38,7 +37,7 @@ func CancelTx(config config.Config, nonce uint64) error {
 
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
-		log.Fatalf("Failed to get chain ID: %v", err)
+		return fmt.Errorf("failed to get chain ID: %w", err)
 	}
 
 	tx := types.NewTx(&types.LegacyTx{
@@ -53,20 +52,19 @@ func CancelTx(config config.Config, nonce uint64) error {
 
 	signedTx, err := types.SignTx(tx, signer, privateKey)
 	if err != nil {
-		log.Fatalf("Failed to sign transaction: %v", err)
+		return fmt.Errorf("failed to sign transaction ID: %w", err)
 	}
 
 	rawTxBytes, err := signedTx.MarshalJSON()
 	if err != nil {
-		log.Fatalf("Failed to marshal signed transaction: %v", err)
+		return fmt.Errorf("failed to marshal signed transaction ID: %w", err)
 	}
 
 	fmt.Printf("Signed transaction: %s\n", rawTxBytes)
 
 	err = client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
-		log.Printf("Failed to send transaction: %v", err)
-		return err
+		return fmt.Errorf("failed to send transaction: %w", err)
 	}
 
 	fmt.Printf("Transaction sent: %s\n", signedTx.Hash().Hex())

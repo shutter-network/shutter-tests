@@ -13,12 +13,12 @@ import (
 func SendLegacyTx(clientURL string, pKey string) (*types.Transaction, error) {
 	client, err := ethclient.Dial(clientURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to the Ethereum client: %w", err)
 	}
 
 	privateKey, err := crypto.HexToECDSA(pKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load private key: %w", err)
 	}
 
 	fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
@@ -26,14 +26,14 @@ func SendLegacyTx(clientURL string, pKey string) (*types.Transaction, error) {
 
 	nonce, err := client.PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get nonce: %w", err)
 	}
 
 	value := big.NewInt(1)    // in wei
 	gasLimit := uint64(21000) // in units
 	gasPrice, err := client.SuggestGasPrice(context.Background())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get suggested gas price: %w", err)
 	}
 
 	toAddress := fromAddress
@@ -41,7 +41,7 @@ func SendLegacyTx(clientURL string, pKey string) (*types.Transaction, error) {
 
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to chain ID: %w", err)
 	}
 
 	tx := types.NewTx(&types.LegacyTx{
@@ -57,19 +57,19 @@ func SendLegacyTx(clientURL string, pKey string) (*types.Transaction, error) {
 
 	signedTx, err := types.SignTx(tx, signer, privateKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to sign transaction: %w", err)
 	}
 
 	rawTxBytes, err := signedTx.MarshalJSON()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshall transaction: %w", err)
 	}
 
 	fmt.Printf("Signed transaction: %s\n", rawTxBytes)
 
 	err = client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to send transaction: %w", err)
 	}
 
 	txHash := signedTx.Hash().Hex()
