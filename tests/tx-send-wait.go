@@ -11,12 +11,13 @@ import (
 )
 
 func SendAndCheckTransaction(cfg config.Config) bool {
-	txHash, nonce, err := rpc_reqs.SendLegacyTx(cfg.NodeURL, cfg.PrivateKey)
+	signedTx, err := rpc_reqs.SendLegacyTx(cfg.NodeURL, cfg.PrivateKey)
 	if err != nil {
-		log.Fatalf("Failed to send transaction")
+		log.Fatalf("Failed to send transaction %s", err)
 	}
 
-	result, err := rpc_reqs.WaitForReceipt(cfg.NodeURL, txHash, cfg.Timeout)
+	nonce := signedTx.Nonce()
+	result, err := rpc_reqs.WaitForReceipt(cfg.NodeURL, signedTx.Hash().Hex(), cfg.Timeout)
 	if result == false { // we didn't receive the transaction within the timeout
 		err := rpc_reqs.CancelTx(cfg, nonce)
 		if err != nil {

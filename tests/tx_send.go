@@ -13,7 +13,10 @@ func RunChiadoTransactions(cfg config.Config) {
 	tick := time.NewTicker(interval)
 
 	for range tick.C {
-		rpc_reqs.SendLegacyTx(cfg.ChiadoURL, cfg.PrivateKey)
+		_, err := rpc_reqs.SendLegacyTx(cfg.ChiadoURL, cfg.PrivateKey)
+		if err != nil {
+			log.Fatalf("Failed to send transaction %s", err)
+		}
 	}
 }
 
@@ -23,6 +26,9 @@ func RunGnosisTransactions(cfg config.Config) {
 	tick := time.NewTicker(interval)
 
 	for range tick.C {
-		rpc_reqs.SendLegacyTx(cfg.GnosisURL, cfg.PrivateKey)
+		_, err := rpc_reqs.SendLegacyTx(cfg.GnosisURL, cfg.PrivateKey)
+		if err != nil {
+			log.Fatalf("Failed to send transaction %s", err)
+		}
 	}
 }
