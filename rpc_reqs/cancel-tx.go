@@ -2,7 +2,6 @@ package rpc_reqs
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -36,10 +35,6 @@ func CancelTx(config config.Config, nonce uint64) error {
 
 	toAddress := common.HexToAddress("0x0000000000000000000000000000000000000000")
 	data := make([]byte, 0)
-	_, err = rand.Read(data)
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	chainID, err := client.NetworkID(context.Background())
 	if err != nil {
