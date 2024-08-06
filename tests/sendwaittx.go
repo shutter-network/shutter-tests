@@ -5,25 +5,25 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/shutter-network/nethermind-tests/config"
-	"github.com/shutter-network/nethermind-tests/rpc_reqs"
+	"github.com/shutter-network/nethermind-tests/requests"
 	"log"
 	"time"
 )
 
 func SendAndCheckTransaction(cfg config.Config) bool {
-	signedTx, err := rpc_reqs.SendLegacyTx(cfg.NodeURL, cfg.PrivateKey)
+	signedTx, err := requests.SendLegacyTx(cfg.NodeURL, cfg.PrivateKey)
 	if err != nil {
 		log.Fatalf("Failed to send transaction %s", err)
 	}
 
 	nonce := signedTx.Nonce()
-	result, err := rpc_reqs.WaitForReceipt(cfg.NodeURL, signedTx.Hash().Hex(), cfg.Timeout)
+	result, err := requests.WaitForReceipt(cfg.NodeURL, signedTx.Hash().Hex(), cfg.Timeout)
 	if err != nil {
 		log.Fatalf("Wait receipt failed with error %s", err)
 	}
 
 	if result == false { // we didn't receive the transaction within the timeout
-		err := rpc_reqs.CancelTx(cfg, nonce)
+		err := requests.CancelTx(cfg, nonce)
 		if err != nil {
 			log.Printf("Cancelling transaction failed with error: %s. "+
 				"Checking if transaction got confirmed in the meantime.", err)

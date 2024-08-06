@@ -1,4 +1,4 @@
-package rpc_reqs
+package requests
 
 import (
 	"context"
