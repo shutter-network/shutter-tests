@@ -19,9 +19,3 @@ services:
       - TEST_DURATION=${TEST_DURATION}
 
     command: ./main
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "1000m"
-        max-file: "3"
-        tag: "{{.ImageName}}|{{.Name}}|CONTAINER_LABEL"
