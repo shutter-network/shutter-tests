@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/shutter-network/nethermind-tests/config"
-	"github.com/shutter-network/nethermind-tests/tests"
 	"log"
+	"os"
 	"strings"
 	"sync"
+
+	"github.com/shutter-network/nethermind-tests/config"
+	"github.com/shutter-network/nethermind-tests/tests"
 )
 
 func main() {
@@ -14,6 +16,13 @@ func main() {
 	fmt.Println(cfg.Mode)
 	mode := cfg.Mode
 	modes := strings.Split(mode, ",")
+
+	logFile, err := os.OpenFile("./logs/tests.log", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		panic(fmt.Errorf("error opening file: %v", err))
+	}
+
+	log.SetOutput(logFile)
 
 	var wg sync.WaitGroup
 	for _, m := range modes {

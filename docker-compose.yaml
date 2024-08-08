@@ -5,6 +5,8 @@ services:
       context: .
     container_name: transaction_testing
     restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
     environment:
       - PRIVATE_KEY=${PRIVATE_KEY}
       - MODE=${MODE}
@@ -15,5 +17,12 @@ services:
       - NODE_URL=${NODE_URL}
       - WAIT_TX_TIMEOUT=${WAIT_TX_TIMEOUT}
       - TEST_DURATION=${TEST_DURATION}
+      - GOLOG_FILE=/app/logs/tests.log
 
     command: ./main
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1000m"
+        max-file: "3"
+        tag: "{{.ImageName}}|{{.Name}}|CONTAINER_LABEL"
