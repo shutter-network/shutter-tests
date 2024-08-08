@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -13,5 +14,6 @@ func EnableExtLoggingFile() {
 		panic(fmt.Errorf("error opening file: %v", err))
 	}
 
-	log.SetOutput(logFile)
+	mw := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(mw)
 }
