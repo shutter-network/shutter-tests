@@ -22,6 +22,9 @@ go.work
 src/bin/
 .idea/
 
+# log files
+logs
+
 # docker compose
 docker/.env
 

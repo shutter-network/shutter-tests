@@ -3,16 +3,18 @@ package requests
 import (
 	"context"
 	"fmt"
+	"log"
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/shutter-network/nethermind-tests/config"
-	"math/big"
 )
 
 func CancelTx(config config.Config, nonce uint64) error {
-	fmt.Println("Cancelling transaction")
+	log.Println("Cancelling transaction")
 	client, err := ethclient.Dial(config.NodeURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to the Ethereum client: %w", err)
@@ -60,13 +62,13 @@ func CancelTx(config config.Config, nonce uint64) error {
 		return fmt.Errorf("failed to marshal signed transaction ID: %w", err)
 	}
 
-	fmt.Printf("Signed transaction: %s\n", rawTxBytes)
+	log.Printf("Signed transaction: %s\n", rawTxBytes)
 
 	err = client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
 		return fmt.Errorf("failed to send transaction: %w", err)
 	}
 
-	fmt.Printf("Transaction sent: %s\n", signedTx.Hash().Hex())
+	log.Printf("Transaction sent: %s\n", signedTx.Hash().Hex())
 	return nil
 }

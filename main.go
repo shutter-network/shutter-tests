@@ -1,19 +1,22 @@
 package main
 
 import (
-	"fmt"
-	"github.com/shutter-network/nethermind-tests/config"
-	"github.com/shutter-network/nethermind-tests/tests"
 	"log"
 	"strings"
 	"sync"
+
+	"github.com/shutter-network/nethermind-tests/config"
+	"github.com/shutter-network/nethermind-tests/tests"
+	"github.com/shutter-network/nethermind-tests/utils"
 )
 
 func main() {
 	cfg := config.LoadConfig()
-	fmt.Println(cfg.Mode)
+	log.Println(cfg.Mode)
 	mode := cfg.Mode
 	modes := strings.Split(mode, ",")
+
+	utils.EnableExtLoggingFile()
 
 	var wg sync.WaitGroup
 	for _, m := range modes {

@@ -5,6 +5,8 @@ services:
       context: .
     container_name: transaction_testing
     restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
     environment:
       - PRIVATE_KEY=${PRIVATE_KEY}
       - MODE=${MODE}
