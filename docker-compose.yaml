@@ -17,7 +17,6 @@ services:
       - NODE_URL=${NODE_URL}
       - WAIT_TX_TIMEOUT=${WAIT_TX_TIMEOUT}
       - TEST_DURATION=${TEST_DURATION}
-      - GOLOG_FILE=/app/logs/tests.log
 
     command: ./main
     logging:
