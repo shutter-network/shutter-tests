@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -13,7 +12,7 @@ import (
 
 func main() {
 	cfg := config.LoadConfig()
-	fmt.Println(cfg.Mode)
+	log.Println(cfg.Mode)
 	mode := cfg.Mode
 	modes := strings.Split(mode, ",")
 

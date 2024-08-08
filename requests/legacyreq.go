@@ -3,11 +3,12 @@ package requests
 import (
 	"context"
 	"fmt"
+	"log"
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"log"
-	"math/big"
 )
 
 func SendLegacyTx(clientURL string, pKey string) (*types.Transaction, error) {
@@ -65,7 +66,7 @@ func SendLegacyTx(clientURL string, pKey string) (*types.Transaction, error) {
 		return nil, fmt.Errorf("failed to marshall transaction: %w", err)
 	}
 
-	fmt.Printf("Signed transaction: %s\n", rawTxBytes)
+	log.Printf("Signed transaction: %s\n", rawTxBytes)
 
 	err = client.SendTransaction(context.Background(), signedTx)
 	if err != nil {
@@ -73,6 +74,6 @@ func SendLegacyTx(clientURL string, pKey string) (*types.Transaction, error) {
 	}
 
 	txHash := signedTx.Hash().Hex()
-	fmt.Printf("Transaction sent: %s\n", txHash)
+	log.Printf("Transaction sent: %s\n", txHash)
 	return signedTx, nil
 }
