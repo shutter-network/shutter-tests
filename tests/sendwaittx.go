@@ -54,6 +54,7 @@ func SendAndCheckTransaction(cfg config.Config) bool {
 
 			log.Fatalf("Failed to send cancel transaction for a non confirmed transaction %s", err)
 		}
+		return false
 	}
 	return true
 }
