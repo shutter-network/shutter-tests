@@ -1,0 +1,20 @@
+### Environment example file for stress test
+#
+# Fill in the placeholders and source the contents of this file.
+#
+# If you have `direnv`, you can copy this file to `.envrc` and run `direnv allow`.
+###
+#
+# the private key of a funded account (non-0x-prefixed hex)
+export STRESS_TEST_PK=0000000000000000000000000000000000000000000000000000000000000000
+# the ethereum address of the key broadcast contract
+export STRESS_TEST_KEY_BROADCAST_CONTRACT_ADDRESS=0xffffffffffffffffffffffffffffffffffffffff
+
+# the ethereum address of the sequencer contract
+export STRESS_TEST_SEQUENCER_CONTRACT_ADDRESS=0xffffffffffffffffffffffffffffffffffffffff
+
+# the ethereum address of the keyper set manager contract
+export STRESS_TEST_KEYPER_SET_MANAGER_CONTRACT_ADDRESS=0xffffffffffffffffffffffffffffffffffffffff
+
+# the rpc connection
+export STRESS_TEST_RPC_URL="https://rpc.chiado.gnosis.gateway.fm"
