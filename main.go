@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -8,6 +9,8 @@ import (
 	"github.com/shutter-network/nethermind-tests/config"
 	"github.com/shutter-network/nethermind-tests/tests"
 	"github.com/shutter-network/nethermind-tests/utils"
+
+	"github.com/shutter-network/nethermind-tests/continuous"
 )
 
 func main() {
@@ -39,9 +42,20 @@ func main() {
 				tests.RunSendAndWaitTest(cfg)
 				wg.Done()
 			}()
+		case "continuous":
+			wg.Add(1)
+			go func() {
+				runContinous()
+				wg.Done()
+			}()
 		default:
 			log.Printf("Unknown mode: %s", m)
 		}
 	}
 	wg.Wait()
+}
+
+func runContinous() {
+	fmt.Println("Running continous tx tests...")
+	continuous.Something()
 }

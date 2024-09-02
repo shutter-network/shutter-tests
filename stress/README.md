@@ -19,7 +19,7 @@ Most other test cases are very simple, and could be considered basic functionali
 
 Also: Since we have no insight to the validator, we rely on timeouts for waiting for transactions to be included on-chain. Additionally, we can not reliably check for failing transactions.
 
-In short: this PR is to some extent ab-using the `go test` environment to allow us excecuting these tests.
+In short: this is to some extent ab-using the `go test` environment to allow us excecuting these tests.
 
 There are also two special "Test…" functions, that do not test anything, but can be used for house keeping:
 - `TestEmptyAccounts`, which allows to drain all funds from extra accounts that got generated during previous test runs.
