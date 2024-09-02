@@ -21,8 +21,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	sequencerBindings "github.com/shutter-network/gnosh-contracts/gnoshcontracts/sequencer"
-	shopContractBindings "github.com/shutter-network/shop-contracts/bindings"
+	keybroadcastcontract "github.com/shutter-network/contracts/v2/bindings/keybroadcastcontract"
+	keypersetmanager "github.com/shutter-network/contracts/v2/bindings/keypersetmanager"
+	sequencerBindings "github.com/shutter-network/contracts/v2/bindings/sequencer"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
 	"gotest.tools/assert"
 )
@@ -160,7 +161,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	if err != nil {
 		return *setup, err
 	}
-	keyperSetManagerContract, err := shopContractBindings.NewKeyperSetManager(common.HexToAddress(KeyperSetManagerContractAddress), client)
+	keyperSetManagerContract, err := keypersetmanager.NewKeypersetmanager(common.HexToAddress(KeyperSetManagerContractAddress), client)
 	if err != nil {
 		return *setup, fmt.Errorf("can not get KeyperSetManager %v", err)
 	}
@@ -170,7 +171,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	if err != nil {
 		return *setup, err
 	}
-	keyBroadcastContract, err := shopContractBindings.NewKeyBroadcastContract(common.HexToAddress(KeyBroadcastContractAddress), client)
+	keyBroadcastContract, err := keybroadcastcontract.NewKeybroadcastcontract(common.HexToAddress(KeyBroadcastContractAddress), client)
 	if err != nil {
 		return *setup, fmt.Errorf("can not get KeyBrodcastContract %v", err)
 	}

@@ -16,9 +16,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	sequencerBindings "github.com/shutter-network/gnosh-contracts/gnoshcontracts/sequencer"
+	keybroadcastcontract "github.com/shutter-network/contracts/v2/bindings/keybroadcastcontract"
+	keypersetmanager "github.com/shutter-network/contracts/v2/bindings/keypersetmanager"
+	sequencerBindings "github.com/shutter-network/contracts/v2/bindings/sequencer"
 	"github.com/shutter-network/rolling-shutter/rolling-shutter/medley/identitypreimage"
-	shopContractBindings "github.com/shutter-network/shop-contracts/bindings"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
 	"golang.org/x/exp/maps"
 )
@@ -36,8 +37,8 @@ type StressSetup struct {
 	TransactFromAddress      common.Address
 	Sequencer                sequencerBindings.Sequencer
 	SequencerContractAddress common.Address
-	KeyperSetManager         shopContractBindings.KeyperSetManager
-	KeyBroadcastContract     shopContractBindings.KeyBroadcastContract
+	KeyperSetManager         keypersetmanager.Keypersetmanager
+	KeyBroadcastContract     keybroadcastcontract.Keybroadcastcontract
 }
 
 // contains the context for the current stress test to create transactions
