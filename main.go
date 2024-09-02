@@ -57,5 +57,5 @@ func main() {
 
 func runContinous() {
 	fmt.Println("Running continous tx tests...")
-	continuous.Something()
+	continuous.QueryAllShutterBlocks()
 }
