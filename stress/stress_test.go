@@ -3,7 +3,6 @@ package stress
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -405,7 +404,7 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 		}
 		submissions = append(submissions, *submitTx)
 		if env.WaitOnEverySubmit {
-			_, err = waitForTx(*submitTx, "submission", env.SubmissionWaitTimeout, setup)
+			_, err = waitForTx(*submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
 			if err != nil {
 				return err
 			}
@@ -413,14 +412,14 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 		log.Println("Submit tx hash", submitTx.Hash().Hex(), "Encrypted tx hash", signedTx.Hash().Hex())
 	}
 	for _, submitTx := range submissions {
-		_, err = waitForTx(submitTx, "submission", env.SubmissionWaitTimeout, setup)
+		_, err = waitForTx(submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
 		if err != nil {
 			return err
 		}
 	}
 	var receipts []*types.Receipt
 	for _, innerTx := range innerTxs {
-		receipt, err := waitForTx(innerTx, "inclusion", env.InclusionWaitTimeout, setup)
+		receipt, err := waitForTx(innerTx, "inclusion", env.InclusionWaitTimeout, setup.Client)
 		if err != nil {
 			return err
 		}
@@ -668,17 +667,17 @@ func TestInception(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	submitReceipt, err := waitForTx(*submitTx, "outer tx", env.SubmissionWaitTimeout, setup)
+	submitReceipt, err := waitForTx(*submitTx, "outer tx", env.SubmissionWaitTimeout, setup.Client)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println(hex.EncodeToString(middleIdentityPrefix[:]))
-	middleReceipt, err := waitForTx(*signedMiddleTx, "middle tx", env.InclusionWaitTimeout, setup)
+	middleReceipt, err := waitForTx(*signedMiddleTx, "middle tx", env.InclusionWaitTimeout, setup.Client)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println(hex.EncodeToString(innerIdentityPrefix[:]))
-	innerReceipt, err := waitForTx(*signedInnerTx, "inner tx", env.InclusionWaitTimeout, setup)
+	innerReceipt, err := waitForTx(*signedInnerTx, "inner tx", env.InclusionWaitTimeout, setup.Client)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -722,18 +721,16 @@ func TestEmptyAccounts(t *testing.T) {
 		log.Fatal("could not query block number", err)
 	}
 	for i := range pks {
-		public := pks[i].Public()
-		publicKey, ok := public.(*ecdsa.PublicKey)
-		if !ok {
-			log.Fatal("error casting public key to ECDSA")
+		account, err := accountFromPrivateKey(pks[i], setup.SignerForChain)
+		if err != nil {
+			log.Fatal("could not create account from privatekey", err, pks[i])
 		}
-		address := crypto.PubkeyToAddress(*publicKey)
-		balance, err := setup.Client.BalanceAt(context.Background(), address, big.NewInt(int64(block)))
+		balance, err := setup.Client.BalanceAt(context.Background(), account.address, big.NewInt(int64(block)))
 		if err == nil {
-			log.Println(address.Hex(), balance)
+			log.Println(account.address.Hex(), balance)
 		}
 		if balance.Uint64() > 0 {
-			drain(context.Background(), pks[i], address, balance.Uint64(), setup)
+			drain(context.Background(), account, balance.Uint64(), setup.SubmitAccount.address, setup.Client)
 		}
 	}
 }
@@ -745,7 +742,7 @@ func TestFixNonce(t *testing.T) {
 	if err != nil {
 		log.Fatal("could not create setup", err)
 	}
-	err = fixNonce(setup)
+	err = fixNonce(setup.Client, setup.SubmitAccount)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -73,11 +73,11 @@ type GasPriceFn func(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i 
 
 type ConstraintFn func(inclusions []*types.Receipt) error
 
-func waitForTx(tx types.Transaction, description string, timeout time.Duration, setup StressSetup) (*types.Receipt, error) {
+func waitForTx(tx types.Transaction, description string, timeout time.Duration, client *ethclient.Client) (*types.Receipt, error) {
 	log.Println("waiting for "+description+" ", tx.Hash().Hex())
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	receipt, err := bind.WaitMined(ctx, setup.Client, &tx)
+	receipt, err := bind.WaitMined(ctx, client, &tx)
 	if err != nil {
 		return nil, fmt.Errorf("error on WaitMined %s", err)
 	}
@@ -173,55 +173,55 @@ func ReadPks(r io.Reader) ([]*ecdsa.PrivateKey, error) {
 	return result, scanner.Err()
 }
 
-func fixNonce(setup StressSetup) error {
+func fixNonce(client *ethclient.Client, account Account) error {
 	value := big.NewInt(1) // 1 wei
 	gasLimit := uint64(21000)
 
 	var data []byte
-	headNonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitAccount.address, nil)
+	headNonce, err := client.NonceAt(context.Background(), account.address, nil)
 	if err != nil {
 		return err
 	}
 	log.Println("HeadNonce", headNonce)
 
-	pendingNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.SubmitAccount.address)
+	pendingNonce, err := client.PendingNonceAt(context.Background(), account.address)
 	if err != nil {
 		return err
 	}
 	log.Println("PendingNonce", pendingNonce)
 	var txs []types.Transaction
 	for i := uint64(0); i < pendingNonce-headNonce; i++ {
-		headNonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitAccount.address, nil)
+		headNonce, err := client.NonceAt(context.Background(), account.address, nil)
 		if err != nil {
 			return err
 		}
 		log.Println("HeadNonce", headNonce, "Pending", pendingNonce, "current", headNonce+i, "i", i)
 
-		gasPrice, err := setup.Client.SuggestGasPrice(context.Background())
+		gasPrice, err := client.SuggestGasPrice(context.Background())
 		if err != nil {
 			return err
 		}
 		gasPrice = gasPrice.Add(gasPrice, gasPrice)
-		tx := types.NewTransaction(headNonce+i, setup.SubmitAccount.address, value, gasLimit, gasPrice, data)
-		signedTx, err := setup.SubmitAccount.sign(setup.SubmitAccount.address, tx)
+		tx := types.NewTransaction(headNonce+i, account.address, value, gasLimit, gasPrice, data)
+		signedTx, err := account.sign(account.address, tx)
 		if err != nil {
 			return err
 		}
-		err = setup.Client.SendTransaction(context.Background(), signedTx)
+		err = client.SendTransaction(context.Background(), signedTx)
 		if err != nil {
 			log.Println("error on send", err)
 		}
-		log.Println("sent nonce fix tx", signedTx.Hash().Hex(), "to", setup.SubmitAccount.address)
+		log.Println("sent nonce fix tx", signedTx.Hash().Hex(), "to", account.address)
 		txs = append(txs, *signedTx)
 	}
 
 	log.Println("waiting for tx")
 	for _, signedTx := range txs {
-		_, err = bind.WaitMined(context.Background(), setup.Client, &signedTx)
+		_, err = bind.WaitMined(context.Background(), client, &signedTx)
 		if err != nil {
 			log.Println("error on wait", err)
 		}
-		headNonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitAccount.address, nil)
+		headNonce, err := client.NonceAt(context.Background(), account.address, nil)
 		if err != nil {
 			return err
 		}
@@ -230,8 +230,8 @@ func fixNonce(setup StressSetup) error {
 	return err
 }
 
-func drain(ctx context.Context, pk *ecdsa.PrivateKey, address common.Address, balance uint64, setup StressSetup) {
-	gasPrice, err := setup.Client.SuggestGasPrice(ctx)
+func drain(ctx context.Context, account Account, balance uint64, target common.Address, client *ethclient.Client) {
+	gasPrice, err := client.SuggestGasPrice(ctx)
 	if err != nil {
 		log.Println("could not query gasPrice")
 	}
@@ -239,25 +239,21 @@ func drain(ctx context.Context, pk *ecdsa.PrivateKey, address common.Address, ba
 	remaining := balance - gasLimit*gasPrice.Uint64()
 	data := make([]byte, 0)
 
-	nonce, err := setup.Client.PendingNonceAt(ctx, address)
+	nonce, err := client.PendingNonceAt(ctx, account.address)
 	if err != nil {
 		log.Println("could not query nonce", err)
 	}
-	tx := types.NewTransaction(nonce, setup.SubmitAccount.address, big.NewInt(int64(remaining)), gasLimit, gasPrice, data)
+	tx := types.NewTransaction(nonce, target, big.NewInt(int64(remaining)), gasLimit, gasPrice, data)
 
-	signature, err := crypto.Sign(setup.SignerForChain.Hash(tx).Bytes(), pk)
+	signed, err := account.sign(account.address, tx)
 	if err != nil {
-		log.Println("could not create signature", err)
+		log.Println("could not sign transaction", err)
 	}
-	signed, err := tx.WithSignature(setup.SignerForChain, signature)
-	if err != nil {
-		log.Println("could not add signature", err)
-	}
-	err = setup.Client.SendTransaction(ctx, signed)
+	err = client.SendTransaction(ctx, signed)
 	if err != nil {
 		log.Println("failed to send", err)
 	}
-	receipt, err := bind.WaitMined(ctx, setup.Client, signed)
+	receipt, err := bind.WaitMined(ctx, client, signed)
 	if err != nil {
 		log.Println("failed to wait for tx", err)
 	}
