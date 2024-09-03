@@ -6,7 +6,6 @@ import (
 	"crypto/ecdsa"
 	cryptorand "crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -75,78 +74,27 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		return *setup, err
 	}
 
-	submitPublicKey := submitPrivateKey.Public()
-	submitPublicKeyECDSA, ok := submitPublicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return *setup, errors.New("error casting public key to ECDSA")
+	submitAccount, err := accountFromPrivateKey(submitPrivateKey, signerForChain)
+	if err != nil {
+		return *setup, err
 	}
-
-	submitFromAddress := crypto.PubkeyToAddress(*submitPublicKeyECDSA)
-
-	setup.SubmitAccount = Account{privateKey: submitPrivateKey, address: submitFromAddress}
-	setup.SubmitAccount.sign = func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
-		if address != submitFromAddress {
-			return nil, errors.New("Not Authorized")
-		}
-		signature, err := crypto.Sign(signerForChain.Hash(tx).Bytes(), submitPrivateKey)
-		if err != nil {
-			return nil, err
-		}
-		return tx.WithSignature(signerForChain, signature)
-	}
+	setup.SubmitAccount = submitAccount
 
 	// TODO: allow multiple transacting accounts in StressEnvironment.TransactAccounts
 	transactPrivateKey, err := crypto.GenerateKey()
-	transactPrivateKeyBytes := crypto.FromECDSA(transactPrivateKey)
 
 	if err != nil {
 		return *setup, err
 	}
-
-	transactPublicKey := transactPrivateKey.Public()
-	transactPublicKeyECDSA, ok := transactPublicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return *setup, errors.New("error casting public key to ECDSA")
-	}
-
-	transactFromAddress := crypto.PubkeyToAddress(*transactPublicKeyECDSA)
-
-	// we're going to store the privatekey of the secondary address in a file 'pk.hex'
-	// this will allow us to recover funds, in case the clean up step fails
-	f, err := os.OpenFile("pk.hex", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return *setup, err
-	}
-	defer f.Close()
-
-	encoder := hex.NewEncoder(f)
-	_, err = encoder.Write(transactPrivateKeyBytes)
-	if err != nil {
-		return *setup, err
-	}
-	_, err = f.Write([]byte(" "))
-	if err != nil {
-		return *setup, err
-	}
-	_, err = encoder.Write(transactFromAddress.Bytes())
-	if err != nil {
-		return *setup, err
-	}
-	_, err = f.Write([]byte("\n"))
+	transactAccount, err := accountFromPrivateKey(transactPrivateKey, signerForChain)
 	if err != nil {
 		return *setup, err
 	}
 
-	setup.TransactAccount = Account{privateKey: transactPrivateKey, address: transactFromAddress}
-	setup.TransactAccount.sign = func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
-		if address != transactFromAddress {
-			return nil, errors.New("Not Authorized")
-		}
-		signature, err := crypto.Sign(signerForChain.Hash(tx).Bytes(), transactPrivateKey)
-		if err != nil {
-			return nil, err
-		}
-		return tx.WithSignature(signerForChain, signature)
+	setup.TransactAccount = transactAccount
+	err = storeAccount(transactAccount)
+	if err != nil {
+		return *setup, err
 	}
 	if fundNewAccount {
 		err = fund(*setup)

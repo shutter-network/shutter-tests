@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"context"
 	"crypto/ecdsa"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math/big"
+	"os"
 	"sort"
 	"time"
 
@@ -83,6 +86,57 @@ func waitForTx(tx types.Transaction, description string, timeout time.Duration, 
 		return nil, fmt.Errorf("included tx failed")
 	}
 	return receipt, nil
+}
+
+func accountFromPrivateKey(privateKey *ecdsa.PrivateKey, signerForChain types.Signer) (Account, error) {
+	account := Account{privateKey: privateKey}
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return account, errors.New("error casting public key to ECDSA")
+	}
+
+	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+	account.address = fromAddress
+	account.sign = func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
+		if address != fromAddress {
+			return nil, errors.New("not authorized")
+		}
+		signature, err := crypto.Sign(signerForChain.Hash(tx).Bytes(), privateKey)
+		if err != nil {
+			return nil, err
+		}
+		return tx.WithSignature(signerForChain, signature)
+	}
+	return account, nil
+}
+
+func storeAccount(account Account) error {
+	// we're going to store the privatekey of the secondary address in a file 'pk.hex'
+	// this will allow us to recover funds, in case the clean up step fails
+	transactPrivateKeyBytes := crypto.FromECDSA(account.privateKey)
+	f, err := os.OpenFile("pk.hex", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	encoder := hex.NewEncoder(f)
+	_, err = encoder.Write(transactPrivateKeyBytes)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write([]byte(" "))
+	if err != nil {
+		return err
+	}
+	_, err = encoder.Write(account.address.Bytes())
+	if err != nil {
+		return err
+	}
+	_, err = f.Write([]byte("\n"))
+	return err
 }
 
 func countAndLog(receipts []*types.Receipt) error {
