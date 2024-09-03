@@ -83,7 +83,8 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 
 	submitFromAddress := crypto.PubkeyToAddress(*submitPublicKeyECDSA)
 
-	setup.SubmitSign = func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
+	setup.SubmitAccount = Account{privateKey: submitPrivateKey, address: submitFromAddress}
+	setup.SubmitAccount.sign = func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
 		if address != submitFromAddress {
 			return nil, errors.New("Not Authorized")
 		}
@@ -93,8 +94,6 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		}
 		return tx.WithSignature(signerForChain, signature)
 	}
-	setup.SubmitPrivateKey = submitPrivateKey
-	setup.SubmitFromAddress = submitFromAddress
 
 	// TODO: allow multiple transacting accounts in StressEnvironment.TransactAccounts
 	transactPrivateKey, err := crypto.GenerateKey()
@@ -138,7 +137,8 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		return *setup, err
 	}
 
-	setup.TransactSign = func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
+	setup.TransactAccount = Account{privateKey: transactPrivateKey, address: transactFromAddress}
+	setup.TransactAccount.sign = func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
 		if address != transactFromAddress {
 			return nil, errors.New("Not Authorized")
 		}
@@ -148,8 +148,6 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		}
 		return tx.WithSignature(signerForChain, signature)
 	}
-	setup.TransactPrivateKey = transactPrivateKey
-	setup.TransactFromAddress = transactFromAddress
 	if fundNewAccount {
 		err = fund(*setup)
 		if err != nil {
@@ -201,13 +199,13 @@ func fund(setup StressSetup) error {
 		return err
 	}
 	var data []byte
-	nonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitFromAddress, nil)
+	nonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitAccount.address, nil)
 	if err != nil {
 		return err
 	}
 	log.Println("HeadNonce", nonce)
-	tx := types.NewTransaction(nonce, setup.TransactFromAddress, value, gasLimit, gasPrice, data)
-	signedTx, err := setup.SubmitSign(setup.SubmitFromAddress, tx)
+	tx := types.NewTransaction(nonce, setup.TransactAccount.address, value, gasLimit, gasPrice, data)
+	signedTx, err := setup.SubmitAccount.sign(setup.SubmitAccount.address, tx)
 	if err != nil {
 		return err
 	}
@@ -215,7 +213,7 @@ func fund(setup StressSetup) error {
 	if err != nil {
 		return err
 	}
-	log.Println("sent funding tx", signedTx.Hash().Hex(), "to", setup.TransactFromAddress)
+	log.Println("sent funding tx", signedTx.Hash().Hex(), "to", setup.TransactAccount.address)
 	_, err = bind.WaitMined(context.Background(), setup.Client, signedTx)
 	return err
 }
@@ -264,16 +262,16 @@ func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvi
 
 	environment := StressEnvironment{
 		TransacterOpts: bind.TransactOpts{
-			From:   setup.TransactFromAddress,
-			Signer: setup.TransactSign,
+			From:   setup.TransactAccount.address,
+			Signer: setup.TransactAccount.sign,
 		},
 		TransactGasPriceFn:   defaultGasPriceFn,
 		TransactGasLimitFn:   defaultGasLimitFn,
 		InclusionWaitTimeout: time.Duration(time.Minute * 2),
 		InclusionConstraints: func(inclusions []*types.Receipt) error { return nil },
 		SubmitterOpts: bind.TransactOpts{
-			From:   setup.SubmitFromAddress,
-			Signer: setup.SubmitSign,
+			From:   setup.SubmitAccount.address,
+			Signer: setup.SubmitAccount.sign,
 		},
 		SubmissionWaitTimeout: time.Duration(time.Second * 30),
 		Eon:                   eon,
@@ -284,14 +282,14 @@ func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvi
 	if err != nil {
 		return environment, fmt.Errorf("could not get eonKey %v", err)
 	}
-	submitterNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.SubmitFromAddress)
+	submitterNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.SubmitAccount.address)
 	log.Println("Current submitter nonce is", submitterNonce)
 	if err != nil {
 		return environment, fmt.Errorf("could not query starting nonce %v", err)
 	}
 	environment.SubmitStartingNonce = big.NewInt(int64(submitterNonce))
 
-	transactNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.TransactFromAddress)
+	transactNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.TransactAccount.address)
 	log.Println("Current transacter nonce is", transactNonce)
 	if err != nil {
 		return environment, fmt.Errorf("could not query starting nonce %v", err)
@@ -382,7 +380,7 @@ func submitEncryptedTx(ctx context.Context, setup StressSetup, env *StressEnviro
 
 	opts.Value = big.NewInt(0).Sub(tx.Cost(), tx.Value())
 
-	encryptedTx, identityPrefix, err := encrypt(ctx, tx, env, setup.SubmitFromAddress, i)
+	encryptedTx, identityPrefix, err := encrypt(ctx, tx, env, setup.SubmitAccount.address, i)
 	if err != nil {
 		return nil, fmt.Errorf("could not encrypt %v", err)
 	}
@@ -400,7 +398,7 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 
 	value := big.NewInt(1) // in wei
 
-	toAddress := setup.SubmitFromAddress
+	toAddress := setup.SubmitAccount.address
 	var data []byte
 	var submissions []types.Transaction
 	var innerTxs []types.Transaction
@@ -442,7 +440,7 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 			},
 		)
 
-		signedTx, err := setup.TransactSign(setup.TransactFromAddress, tx)
+		signedTx, err := setup.TransactAccount.sign(setup.TransactAccount.address, tx)
 		if err != nil {
 			return err
 		}
@@ -642,19 +640,19 @@ func TestInception(t *testing.T) {
 			GasFeeCap: gasFeeCap,
 			GasTipCap: gasTipCap,
 			Gas:       uint64(innerGasLimit),
-			To:        &setup.SubmitFromAddress,
+			To:        &setup.SubmitAccount.address,
 			Value:     big.NewInt(1),
 			Data:      data,
 		},
 	)
 
 	// TODO: we could start a loop here
-	signedInnerTx, err := setup.TransactSign(setup.TransactFromAddress, innerTx)
+	signedInnerTx, err := setup.TransactAccount.sign(setup.TransactAccount.address, innerTx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	encryptedInnerTx, innerIdentityPrefix, err := encrypt(ctx, *signedInnerTx, &env, setup.TransactFromAddress, 1)
+	encryptedInnerTx, innerIdentityPrefix, err := encrypt(ctx, *signedInnerTx, &env, setup.TransactAccount.address, 1)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -679,7 +677,7 @@ func TestInception(t *testing.T) {
 	gasFeeCap, gasTipCap = env.TransactGasPriceFn(price, tip, 0, 1)
 
 	middleCallMsg := ethereum.CallMsg{
-		From:  setup.TransactFromAddress,
+		From:  setup.TransactAccount.address,
 		To:    &setup.SequencerContractAddress,
 		Value: signedInnerTx.Cost(),
 		Data:  input,
@@ -702,12 +700,12 @@ func TestInception(t *testing.T) {
 		},
 	)
 
-	signedMiddleTx, err := setup.TransactSign(setup.TransactFromAddress, middleTx)
+	signedMiddleTx, err := setup.TransactAccount.sign(setup.TransactAccount.address, middleTx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	middleTxEncryptedMsg, middleIdentityPrefix, err := encrypt(ctx, *signedMiddleTx, &env, setup.SubmitFromAddress, 1)
+	middleTxEncryptedMsg, middleIdentityPrefix, err := encrypt(ctx, *signedMiddleTx, &env, setup.SubmitAccount.address, 1)
 	if err != nil {
 		log.Fatal(err)
 	}

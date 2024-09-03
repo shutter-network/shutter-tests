@@ -24,17 +24,19 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+type Account struct {
+	address    common.Address
+	privateKey *ecdsa.PrivateKey
+	sign       bind.SignerFn
+}
+
 // contains all the setup required to interact with the chain
 type StressSetup struct {
 	Client                   *ethclient.Client
 	SignerForChain           types.Signer
 	ChainID                  *big.Int
-	SubmitSign               bind.SignerFn
-	SubmitPrivateKey         *ecdsa.PrivateKey
-	SubmitFromAddress        common.Address
-	TransactSign             bind.SignerFn
-	TransactPrivateKey       *ecdsa.PrivateKey
-	TransactFromAddress      common.Address
+	SubmitAccount            Account
+	TransactAccount          Account
 	Sequencer                sequencerBindings.Sequencer
 	SequencerContractAddress common.Address
 	KeyperSetManager         keypersetmanager.Keypersetmanager
@@ -122,20 +124,20 @@ func fixNonce(setup StressSetup) error {
 	gasLimit := uint64(21000)
 
 	var data []byte
-	headNonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitFromAddress, nil)
+	headNonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitAccount.address, nil)
 	if err != nil {
 		return err
 	}
 	log.Println("HeadNonce", headNonce)
 
-	pendingNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.SubmitFromAddress)
+	pendingNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.SubmitAccount.address)
 	if err != nil {
 		return err
 	}
 	log.Println("PendingNonce", pendingNonce)
 	var txs []types.Transaction
 	for i := uint64(0); i < pendingNonce-headNonce; i++ {
-		headNonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitFromAddress, nil)
+		headNonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitAccount.address, nil)
 		if err != nil {
 			return err
 		}
@@ -146,8 +148,8 @@ func fixNonce(setup StressSetup) error {
 			return err
 		}
 		gasPrice = gasPrice.Add(gasPrice, gasPrice)
-		tx := types.NewTransaction(headNonce+i, setup.SubmitFromAddress, value, gasLimit, gasPrice, data)
-		signedTx, err := setup.SubmitSign(setup.SubmitFromAddress, tx)
+		tx := types.NewTransaction(headNonce+i, setup.SubmitAccount.address, value, gasLimit, gasPrice, data)
+		signedTx, err := setup.SubmitAccount.sign(setup.SubmitAccount.address, tx)
 		if err != nil {
 			return err
 		}
@@ -155,7 +157,7 @@ func fixNonce(setup StressSetup) error {
 		if err != nil {
 			log.Println("error on send", err)
 		}
-		log.Println("sent nonce fix tx", signedTx.Hash().Hex(), "to", setup.SubmitFromAddress)
+		log.Println("sent nonce fix tx", signedTx.Hash().Hex(), "to", setup.SubmitAccount.address)
 		txs = append(txs, *signedTx)
 	}
 
@@ -165,7 +167,7 @@ func fixNonce(setup StressSetup) error {
 		if err != nil {
 			log.Println("error on wait", err)
 		}
-		headNonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitFromAddress, nil)
+		headNonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitAccount.address, nil)
 		if err != nil {
 			return err
 		}
@@ -187,7 +189,7 @@ func drain(ctx context.Context, pk *ecdsa.PrivateKey, address common.Address, ba
 	if err != nil {
 		log.Println("could not query nonce", err)
 	}
-	tx := types.NewTransaction(nonce, setup.SubmitFromAddress, big.NewInt(int64(remaining)), gasLimit, gasPrice, data)
+	tx := types.NewTransaction(nonce, setup.SubmitAccount.address, big.NewInt(int64(remaining)), gasLimit, gasPrice, data)
 
 	signature, err := crypto.Sign(setup.SignerForChain.Hash(tx).Bytes(), pk)
 	if err != nil {
