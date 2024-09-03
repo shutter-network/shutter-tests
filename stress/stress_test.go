@@ -73,7 +73,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		return *setup, err
 	}
 
-	submitAccount, err := accountFromPrivateKey(submitPrivateKey, signerForChain)
+	submitAccount, err := AccountFromPrivateKey(submitPrivateKey, signerForChain)
 	if err != nil {
 		return *setup, err
 	}
@@ -85,7 +85,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	if err != nil {
 		return *setup, err
 	}
-	transactAccount, err := accountFromPrivateKey(transactPrivateKey, signerForChain)
+	transactAccount, err := AccountFromPrivateKey(transactPrivateKey, signerForChain)
 	if err != nil {
 		return *setup, err
 	}
@@ -721,7 +721,7 @@ func TestEmptyAccounts(t *testing.T) {
 		log.Fatal("could not query block number", err)
 	}
 	for i := range pks {
-		account, err := accountFromPrivateKey(pks[i], setup.SignerForChain)
+		account, err := AccountFromPrivateKey(pks[i], setup.SignerForChain)
 		if err != nil {
 			log.Fatal("could not create account from privatekey", err, pks[i])
 		}

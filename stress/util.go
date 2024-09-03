@@ -88,7 +88,7 @@ func waitForTx(tx types.Transaction, description string, timeout time.Duration, 
 	return receipt, nil
 }
 
-func accountFromPrivateKey(privateKey *ecdsa.PrivateKey, signerForChain types.Signer) (Account, error) {
+func AccountFromPrivateKey(privateKey *ecdsa.PrivateKey, signerForChain types.Signer) (Account, error) {
 	account := Account{privateKey: privateKey}
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)

@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shutter-network/nethermind-tests/stress"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
 )
 
@@ -21,7 +22,7 @@ type Status struct {
 }
 
 type ShutterTx struct {
-	sender       accounts.Account
+	sender       stress.Account
 	prefix       shcrypto.Block
 	triggerBlock int64
 	txStatus     TxStatus
@@ -36,8 +37,39 @@ const (
 	Included                        // next shutterized block was found and the tx was included
 )
 
+func (ts TxStatus) String() string {
+	return [...]string{"Signed", "Sequenced", "NotIncluded", "Included"}[ts-1]
+}
+
+func (ts TxStatus) EnumIndex() int {
+	return int(ts)
+}
+
 type Configuration struct {
-	accounts []accounts.Account
+	accounts      []stress.Account
+	submitAccount stress.Account
+}
+
+type ShutterBlock struct {
+	block int64
+	ts    *pgtype.Date
+}
+
+func createAccounts(num uint) ([]stress.Account, error) {
+	accounts := make([]stress.Account, num)
+	for int _ := range num {
+		pk, err := crypto.GenerateKey()
+		if err != nil {
+			return accounts, err
+		}
+		account, err := stress.AccountFromPrivateKey(pk)
+		if err != nil {
+			return accounts, err
+		}
+		accounts = append(accounts, account)
+	}
+	return accounts, nil
+
 }
 
 func NewConnection() Connection {
@@ -55,7 +87,7 @@ func NewConnection() Connection {
 	return connection
 }
 
-func QueryAllShutterBlocks() {
+func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 	waitBetweenQueries := 5 * time.Second
 	status := Status{lastShutterTS: nil}
 	connection := NewConnection()
@@ -85,21 +117,25 @@ func QueryAllShutterBlocks() {
 		fmt.Println("errors when finding shutterized blocks: ", rows.Err())
 	}
 	for {
-		newTS := queryNewestShutterBlock(*status.lastShutterTS, *connection.db)
+		newShutterBlock := queryNewestShutterBlock(*status.lastShutterTS, *connection.db)
 		time.Sleep(waitBetweenQueries)
-		if !newTS.Time.IsZero() {
-			fmt.Println(newTS)
-			status.lastShutterTS = newTS
+		if !newShutterBlock.ts.Time.IsZero() {
+			fmt.Println(newShutterBlock)
+			status.lastShutterTS = newShutterBlock.ts
 			// send event (block number, timestamp) to out channel
+			out <- newShutterBlock
 		}
 	}
 }
 
-func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) *pgtype.Date {
+func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBlock {
 
+	var block int64
 	var ts pgtype.Date
+	var count int
 	query := `
-	SELECT to_timestamp(max(b.block_timestamp)) as ts,
+	SELECT b.block_number,
+	to_timestamp(max(b.block_timestamp)) as ts,
 	COUNT(d.*) as count
 	FROM decryption_keys_message_decryption_key d
 		LEFT JOIN block b ON d.decryption_keys_message_slot = b.slot
@@ -112,9 +148,8 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) *pgtype.D
 		panic(err)
 	}
 	defer rows.Close()
-	var count int
 	for rows.Next() {
-		rows.Scan(&ts, &count)
+		rows.Scan(&block, &ts, &count)
 		if !ts.Time.IsZero() {
 			fmt.Println("FOUND NEW SHUTTER BLOCK:", ts.Time, count)
 		}
@@ -122,9 +157,16 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) *pgtype.D
 	if rows.Err() != nil {
 		fmt.Println("errors when finding shutterized blocks: ", rows.Err())
 	}
-	return &ts
+	res := ShutterBlock{}
+	res.block = block
+	res.ts = &ts
+	return res
 }
 
 func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg Configuration) {
 	// get available account from cfg
+	// create prefix from trigger data
+	// encrypt tx
+	// send to sequencer
+	// add to txInFlight
 }
