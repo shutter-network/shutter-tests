@@ -88,6 +88,14 @@ func waitForTx(tx types.Transaction, description string, timeout time.Duration, 
 	return receipt, nil
 }
 
+func ReadStringFromEnv(envName string) (string, error) {
+	value := os.Getenv(envName)
+	if len(value) < 2 {
+		return "", fmt.Errorf("could not read %v from environment. See README for details!", envName)
+	}
+	return value, nil
+}
+
 func AccountFromPrivateKey(privateKey *ecdsa.PrivateKey, signerForChain types.Signer) (Account, error) {
 	account := Account{privateKey: privateKey}
 	publicKey := privateKey.Public()
@@ -112,7 +120,7 @@ func AccountFromPrivateKey(privateKey *ecdsa.PrivateKey, signerForChain types.Si
 	return account, nil
 }
 
-func storeAccount(account Account) error {
+func StoreAccount(account Account) error {
 	// we're going to store the privatekey of the secondary address in a file 'pk.hex'
 	// this will allow us to recover funds, in case the clean up step fails
 	transactPrivateKeyBytes := crypto.FromECDSA(account.privateKey)

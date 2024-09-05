@@ -34,17 +34,9 @@ func skipCI(t *testing.T) {
 
 const KeyperSetChangeLookAhead = 2
 
-func readStringFromEnv(envName string) (string, error) {
-	value := os.Getenv(envName)
-	if len(value) < 2 {
-		return "", fmt.Errorf("Could not read %v from environment. See README for details!", envName)
-	}
-	return value, nil
-}
-
 func createSetup(fundNewAccount bool) (StressSetup, error) {
 	setup := new(StressSetup)
-	RpcUrl, err := readStringFromEnv("STRESS_TEST_RPC_URL")
+	RpcUrl, err := ReadStringFromEnv("STRESS_TEST_RPC_URL")
 	if err != nil {
 		return *setup, err
 	}
@@ -64,7 +56,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	signerForChain := types.LatestSignerForChainID(chainID)
 	setup.SignerForChain = signerForChain
 
-	submitKeyHex, err := readStringFromEnv("STRESS_TEST_PK")
+	submitKeyHex, err := ReadStringFromEnv("STRESS_TEST_PK")
 	if err != nil {
 		return *setup, err
 	}
@@ -91,7 +83,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	}
 
 	setup.TransactAccount = transactAccount
-	err = storeAccount(transactAccount)
+	err = StoreAccount(transactAccount)
 	if err != nil {
 		return *setup, err
 	}
@@ -102,7 +94,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		}
 		log.Println("Funding complete")
 	}
-	KeyperSetManagerContractAddress, err := readStringFromEnv("STRESS_TEST_KEYPER_SET_MANAGER_CONTRACT_ADDRESS")
+	KeyperSetManagerContractAddress, err := ReadStringFromEnv("STRESS_TEST_KEYPER_SET_MANAGER_CONTRACT_ADDRESS")
 	if err != nil {
 		return *setup, err
 	}
@@ -112,7 +104,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	}
 	setup.KeyperSetManager = *keyperSetManagerContract
 
-	KeyBroadcastContractAddress, err := readStringFromEnv("STRESS_TEST_KEY_BROADCAST_CONTRACT_ADDRESS")
+	KeyBroadcastContractAddress, err := ReadStringFromEnv("STRESS_TEST_KEY_BROADCAST_CONTRACT_ADDRESS")
 	if err != nil {
 		return *setup, err
 	}
@@ -123,7 +115,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 
 	setup.KeyBroadcastContract = *keyBroadcastContract
 
-	SequencerContractAddress, err := readStringFromEnv("STRESS_TEST_SEQUENCER_CONTRACT_ADDRESS")
+	SequencerContractAddress, err := ReadStringFromEnv("STRESS_TEST_SEQUENCER_CONTRACT_ADDRESS")
 	if err != nil {
 		return *setup, err
 	}

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shutter-network/nethermind-tests/stress"
@@ -33,8 +35,8 @@ type TxStatus int
 const (
 	Signed      TxStatus = iota + 1 // user transaction was encrypted and tx to the sequencer contract was signed and sent
 	Sequenced                       // tx to sequencer contract was mined
-	NotIncluded                     // next shutterized block was found, but this tx was not part of it
 	Included                        // next shutterized block was found and the tx was included
+	NotIncluded                     // next shutterized block was found, but this tx was not part of it
 )
 
 func (ts TxStatus) String() string {
@@ -48,6 +50,7 @@ func (ts TxStatus) EnumIndex() int {
 type Configuration struct {
 	accounts      []stress.Account
 	submitAccount stress.Account
+	client        *ethclient.Client
 }
 
 type ShutterBlock struct {
@@ -55,14 +58,58 @@ type ShutterBlock struct {
 	ts    *pgtype.Date
 }
 
-func createAccounts(num uint) ([]stress.Account, error) {
+func createConfiguration() (Configuration, error) {
+	cfg := Configuration{}
+	RpcUrl, err := stress.ReadStringFromEnv("CONTINUOUS_TEST_RPC_URL")
+	if err != nil {
+		return cfg, err
+	}
+	client, err := ethclient.Dial(RpcUrl)
+	if err != nil {
+		return cfg, fmt.Errorf("could not create client %v", err)
+	}
+
+	cfg.client = client
+
+	chainID, err := client.NetworkID(context.Background())
+	if err != nil {
+		return cfg, fmt.Errorf("could not query chainId %v", err)
+	}
+
+	signerForChain := types.LatestSignerForChainID(chainID)
+
+	submitKeyHex, err := stress.ReadStringFromEnv("CONTINUOUS_TEST_PK")
+	if err != nil {
+		return cfg, err
+	}
+	submitPrivateKey, err := crypto.HexToECDSA(submitKeyHex)
+	if err != nil {
+		return cfg, err
+	}
+	submitAccount, err := stress.AccountFromPrivateKey(submitPrivateKey, signerForChain)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.submitAccount = submitAccount
+	accounts, err := createAccounts(6, signerForChain)
+	if err != nil {
+		return cfg, err
+	}
+	for _, account := range accounts {
+		stress.StoreAccount(account)
+	}
+	cfg.accounts = accounts
+	return cfg, nil
+}
+
+func createAccounts(num int, signerForChain types.Signer) ([]stress.Account, error) {
 	accounts := make([]stress.Account, num)
-	for int _ := range num {
+	for i := 0; i < num; i++ {
 		pk, err := crypto.GenerateKey()
 		if err != nil {
 			return accounts, err
 		}
-		account, err := stress.AccountFromPrivateKey(pk)
+		account, err := stress.AccountFromPrivateKey(pk, signerForChain)
 		if err != nil {
 			return accounts, err
 		}
