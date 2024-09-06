@@ -56,6 +56,14 @@ func main() {
 }
 
 func runContinous() {
+	cfg, err := continuous.Setup()
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println("Running continous tx tests...")
-	continuous.QueryAllShutterBlocks()
+	blocks := make(chan continuous.ShutterBlock)
+	go continuous.QueryAllShutterBlocks(blocks)
+	for block := range blocks {
+		continuous.SendShutterizedTX(block.Number, *block.Ts, cfg)
+	}
 }

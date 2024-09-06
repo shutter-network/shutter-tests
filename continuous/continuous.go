@@ -54,8 +54,8 @@ type Configuration struct {
 }
 
 type ShutterBlock struct {
-	block int64
-	ts    *pgtype.Date
+	Number int64
+	Ts     *pgtype.Date
 }
 
 func createConfiguration() (Configuration, error) {
@@ -164,11 +164,12 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 		fmt.Println("errors when finding shutterized blocks: ", rows.Err())
 	}
 	for {
+		fmt.Printf(".")
 		newShutterBlock := queryNewestShutterBlock(*status.lastShutterTS, *connection.db)
 		time.Sleep(waitBetweenQueries)
-		if !newShutterBlock.ts.Time.IsZero() {
+		if !newShutterBlock.Ts.Time.IsZero() {
 			fmt.Println(newShutterBlock)
-			status.lastShutterTS = newShutterBlock.ts
+			status.lastShutterTS = newShutterBlock.Ts
 			// send event (block number, timestamp) to out channel
 			out <- newShutterBlock
 		}
@@ -187,7 +188,7 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	FROM decryption_keys_message_decryption_key d
 		LEFT JOIN block b ON d.decryption_keys_message_slot = b.slot
 		WHERE b.block_timestamp > $1
-		GROUP BY d.decryption_keys_message_slot
+		GROUP BY d.decryption_keys_message_slot, b.block_number
 		ORDER BY d.decryption_keys_message_slot;
 	`
 	rows, err := db.Query(context.Background(), query, lastBlockTS.Time.Unix())
@@ -205,8 +206,8 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 		fmt.Println("errors when finding shutterized blocks: ", rows.Err())
 	}
 	res := ShutterBlock{}
-	res.block = block
-	res.ts = &ts
+	res.Number = block
+	res.Ts = &ts
 	return res
 }
 
@@ -216,4 +217,9 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg Configu
 	// encrypt tx
 	// send to sequencer
 	// add to txInFlight
+	fmt.Printf("SENDING NEW TX FOR %v", blockNumber)
+}
+
+func Setup() (Configuration, error) {
+	return createConfiguration()
 }
