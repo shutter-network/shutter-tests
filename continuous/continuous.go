@@ -266,11 +266,12 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 }
 
 func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Configuration) {
-	// get available account from cfg
-	// create prefix from trigger data
-	// encrypt tx
-	// send to sequencer
-	// add to txInFlight
+	// [ ] func accounts in cfg
+	// [x] get available account from cfg
+	// [x] create prefix from trigger data
+	// [x] encrypt tx
+	// [ ] send to sequencer
+	// [x] add to txInFlight
 	fmt.Printf("\nSENDING NEW TX FOR %v", blockNumber)
 	account := cfg.NextAccount()
 	fmt.Printf("\nUsing %v\n", account.Address.Hex())
