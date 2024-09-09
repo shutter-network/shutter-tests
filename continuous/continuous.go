@@ -317,7 +317,8 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 		panic(err)
 	}
 
-	_, eonKey, err := stress.GetEonKey(context.Background(), cfg.client, *cfg.contracts.KeyperSetManager, *cfg.contracts.KeyBroadcastContract, KeyperSetChangeLookAhead)
+	// could not get eon no contract code at given address
+	_, eonKey, err := stress.GetEonKey(context.Background(), cfg.client, cfg.contracts.KeyperSetManager, cfg.contracts.KeyBroadcastContract, KeyperSetChangeLookAhead)
 	if err != nil {
 		panic(err)
 	}

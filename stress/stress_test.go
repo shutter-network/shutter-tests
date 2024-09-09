@@ -217,7 +217,7 @@ func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvi
 }
 
 func getEonKey(ctx context.Context, setup StressSetup) (uint64, *shcrypto.EonPublicKey, error) {
-	return GetEonKey(ctx, setup.Client, setup.KeyperSetManager, setup.KeyBroadcastContract, KeyperSetChangeLookAhead)
+	return GetEonKey(ctx, setup.Client, &setup.KeyperSetManager, &setup.KeyBroadcastContract, KeyperSetChangeLookAhead)
 }
 
 func createIdentityPrefix() (shcrypto.Block, error) {

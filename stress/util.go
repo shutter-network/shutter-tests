@@ -336,20 +336,30 @@ func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, Seque
 	}
 
 	setup.Sequencer = sequencerContract
+	blockNumber, err := client.BlockNumber(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	eon, err := keyperSetManagerContract.GetKeyperSetIndexByBlock(nil, blockNumber+uint64(2))
+	if err != nil {
+		log.Fatal(err, ": ", KeyperSetManagerContractAddress)
+	}
+	log.Println(eon)
 	return setup, nil
 }
 
 func GetEonKey(
 	ctx context.Context,
 	client *ethclient.Client,
-	keyperSetManager keypersetmanager.Keypersetmanager,
-	keyBroadcastContract keybroadcastcontract.Keybroadcastcontract,
+	keyperSetManager *keypersetmanager.Keypersetmanager,
+	keyBroadcastContract *keybroadcastcontract.Keybroadcastcontract,
 	KeyperSetChangeLookAhead int) (uint64, *shcrypto.EonPublicKey, error) {
 	blockNumber, err := client.BlockNumber(ctx)
 	if err != nil {
 		return 0, nil, fmt.Errorf("could not query blockNumber %v", err)
 	}
 
+	// could not get eon no contract code at given address
 	eon, err := keyperSetManager.GetKeyperSetIndexByBlock(nil, blockNumber+uint64(KeyperSetChangeLookAhead))
 	if err != nil {
 		return 0, nil, fmt.Errorf("could not get eon %v", err)
