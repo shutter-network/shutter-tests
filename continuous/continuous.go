@@ -19,7 +19,7 @@ type Connection struct {
 }
 
 type Status struct {
-	lastShutterTS *pgtype.Date
+	lastShutterTS pgtype.Date
 	txInFlight    []ShutterTx
 }
 
@@ -55,7 +55,7 @@ type Configuration struct {
 
 type ShutterBlock struct {
 	Number int64
-	Ts     *pgtype.Date
+	Ts     pgtype.Date
 }
 
 func createConfiguration() (Configuration, error) {
@@ -96,7 +96,10 @@ func createConfiguration() (Configuration, error) {
 		return cfg, err
 	}
 	for _, account := range accounts {
-		stress.StoreAccount(account)
+		err = stress.StoreAccount(account)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 	cfg.accounts = accounts
 	return cfg, nil
@@ -113,7 +116,7 @@ func createAccounts(num int, signerForChain types.Signer) ([]stress.Account, err
 		if err != nil {
 			return accounts, err
 		}
-		accounts = append(accounts, account)
+		accounts[i] = account
 	}
 	return accounts, nil
 
@@ -136,7 +139,7 @@ func NewConnection() Connection {
 
 func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 	waitBetweenQueries := 5 * time.Second
-	status := Status{lastShutterTS: nil}
+	status := Status{lastShutterTS: pgtype.Date{}}
 	connection := NewConnection()
 	query := `
 	SELECT to_timestamp(max(b.block_timestamp)) as ts,
@@ -157,18 +160,17 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 		rows.Scan(&ts, &count)
 		if !ts.Time.IsZero() {
 			fmt.Println(ts.Time, count)
-			status.lastShutterTS = &ts
+			status.lastShutterTS = ts
 		}
 	}
 	if rows.Err() != nil {
 		fmt.Println("errors when finding shutterized blocks: ", rows.Err())
 	}
 	for {
-		fmt.Printf(".")
-		newShutterBlock := queryNewestShutterBlock(*status.lastShutterTS, *connection.db)
 		time.Sleep(waitBetweenQueries)
+		fmt.Printf(".")
+		newShutterBlock := queryNewestShutterBlock(status.lastShutterTS, *connection.db)
 		if !newShutterBlock.Ts.Time.IsZero() {
-			fmt.Println(newShutterBlock)
 			status.lastShutterTS = newShutterBlock.Ts
 			// send event (block number, timestamp) to out channel
 			out <- newShutterBlock
@@ -199,7 +201,10 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	for rows.Next() {
 		rows.Scan(&block, &ts, &count)
 		if !ts.Time.IsZero() {
-			fmt.Println("FOUND NEW SHUTTER BLOCK:", ts.Time, count)
+			fmt.Printf("\nFOUND NEW SHUTTER BLOCK %v: %v [%v]", block, ts.Time, count)
+		}
+		if count > 1 {
+			fmt.Printf("missed some blocks: %v", count-1)
 		}
 	}
 	if rows.Err() != nil {
@@ -207,7 +212,7 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	}
 	res := ShutterBlock{}
 	res.Number = block
-	res.Ts = &ts
+	res.Ts = ts
 	return res
 }
 
@@ -217,7 +222,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg Configu
 	// encrypt tx
 	// send to sequencer
 	// add to txInFlight
-	fmt.Printf("SENDING NEW TX FOR %v", blockNumber)
+	fmt.Printf("\nSENDING NEW TX FOR %v", blockNumber)
 }
 
 func Setup() (Configuration, error) {

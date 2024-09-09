@@ -64,6 +64,6 @@ func runContinous() {
 	blocks := make(chan continuous.ShutterBlock)
 	go continuous.QueryAllShutterBlocks(blocks)
 	for block := range blocks {
-		continuous.SendShutterizedTX(block.Number, *block.Ts, cfg)
+		continuous.SendShutterizedTX(block.Number, block.Ts, cfg)
 	}
 }
