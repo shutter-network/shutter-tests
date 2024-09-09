@@ -31,6 +31,15 @@ type Account struct {
 	Address    common.Address
 	privateKey *ecdsa.PrivateKey
 	Sign       bind.SignerFn
+	Nonce      big.Int
+}
+
+// Returns the currently stored account nonce and increases the stored value
+func (acc Account) UseNonce() big.Int {
+	one := big.NewInt(1)
+	result := acc.Nonce
+	acc.Nonce.Add(&result, one)
+	return result
 }
 
 // contains all the setup required to interact with the chain
@@ -38,8 +47,8 @@ type StressSetup struct {
 	Client                   *ethclient.Client
 	SignerForChain           types.Signer
 	ChainID                  *big.Int
-	SubmitAccount            Account
-	TransactAccount          Account
+	SubmitAccount            *Account
+	TransactAccount          *Account
 	Sequencer                sequencerBindings.Sequencer
 	SequencerContractAddress common.Address
 	KeyperSetManager         keypersetmanager.Keypersetmanager
@@ -49,13 +58,11 @@ type StressSetup struct {
 // contains the context for the current stress test to create transactions
 type StressEnvironment struct {
 	TransacterOpts        bind.TransactOpts
-	TransactStartingNonce *big.Int
 	TransactGasPriceFn    GasPriceFn
 	TransactGasLimitFn    GasLimitFn
 	InclusionWaitTimeout  time.Duration
 	InclusionConstraints  ConstraintFn
 	SubmitterOpts         bind.TransactOpts
-	SubmitStartingNonce   *big.Int
 	SubmissionWaitTimeout time.Duration
 	Eon                   uint64
 	EonPublicKey          *shcrypto.EonPublicKey
@@ -70,6 +77,17 @@ type GasTipCap *big.Int
 type GasLimitFn func(data []byte, toAddress *common.Address, i int, count int) uint64
 
 type GasPriceFn func(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (GasFeeCap, GasTipCap)
+
+func DefaultGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (GasFeeCap, GasTipCap) {
+	feeCapAndTipCap := big.NewInt(0).Add(suggestedGasPrice, suggestedGasTipCap)
+
+	gasFloat, _ := suggestedGasPrice.Float64()
+	x := int64(gasFloat * 1.5) // fixed delta
+	log.Println("delta is ", x)
+	delta := big.NewInt(x)
+	gasFeeCap := big.NewInt(0).Add(feeCapAndTipCap, delta)
+	return gasFeeCap, suggestedGasTipCap
+}
 
 type ConstraintFn func(inclusions []*types.Receipt) error
 
@@ -117,6 +135,7 @@ func AccountFromPrivateKey(privateKey *ecdsa.PrivateKey, signerForChain types.Si
 		}
 		return tx.WithSignature(signerForChain, signature)
 	}
+	account.Nonce = *big.NewInt(0)
 	return account, nil
 }
 
@@ -286,4 +305,64 @@ func createRandomAddress() (common.Address, error) {
 func ComputeIdentity(prefix []byte, sender common.Address) *shcrypto.EpochID {
 	imageBytes := append(prefix, sender.Bytes()...)
 	return shcrypto.ComputeEpochID(identitypreimage.IdentityPreimage(imageBytes).Bytes())
+}
+
+type Contracts struct {
+	KeyperSetManager         *keypersetmanager.Keypersetmanager
+	KeyBroadcastContract     *keybroadcastcontract.Keybroadcastcontract
+	SequencerContractAddress common.Address
+	Sequencer                *sequencerBindings.Sequencer
+}
+
+func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress string) (Contracts, error) {
+	var setup Contracts
+	keyperSetManagerContract, err := keypersetmanager.NewKeypersetmanager(common.HexToAddress(KeyperSetManagerContractAddress), client)
+	if err != nil {
+		return setup, fmt.Errorf("can not get KeyperSetManager %v", err)
+	}
+	setup.KeyperSetManager = keyperSetManagerContract
+
+	keyBroadcastContract, err := keybroadcastcontract.NewKeybroadcastcontract(common.HexToAddress(KeyBroadcastContractAddress), client)
+	if err != nil {
+		return setup, fmt.Errorf("can not get KeyBrodcastContract %v", err)
+	}
+
+	setup.KeyBroadcastContract = keyBroadcastContract
+
+	setup.SequencerContractAddress = common.HexToAddress(SequencerContractAddress)
+	sequencerContract, err := sequencerBindings.NewSequencer(common.HexToAddress(SequencerContractAddress), client)
+	if err != nil {
+		return setup, fmt.Errorf("can not get SequencerContract %v", err)
+	}
+
+	setup.Sequencer = sequencerContract
+	return setup, nil
+}
+
+func GetEonKey(
+	ctx context.Context,
+	client *ethclient.Client,
+	keyperSetManager keypersetmanager.Keypersetmanager,
+	keyBroadcastContract keybroadcastcontract.Keybroadcastcontract,
+	KeyperSetChangeLookAhead int) (uint64, *shcrypto.EonPublicKey, error) {
+	blockNumber, err := client.BlockNumber(ctx)
+	if err != nil {
+		return 0, nil, fmt.Errorf("could not query blockNumber %v", err)
+	}
+
+	eon, err := keyperSetManager.GetKeyperSetIndexByBlock(nil, blockNumber+uint64(KeyperSetChangeLookAhead))
+	if err != nil {
+		return 0, nil, fmt.Errorf("could not get eon %v", err)
+	}
+
+	eonKeyBytes, err := keyBroadcastContract.GetEonKey(nil, eon)
+	if err != nil {
+		return 0, nil, fmt.Errorf("could not get eonKeyBytes %v", err)
+	}
+
+	eonKey := &shcrypto.EonPublicKey{}
+	if err := eonKey.Unmarshal(eonKeyBytes); err != nil {
+		return 0, nil, fmt.Errorf("could not unmarshal eonKeyBytes %v", err)
+	}
+	return eon, eonKey, nil
 }

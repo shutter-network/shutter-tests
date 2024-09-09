@@ -19,8 +19,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	keybroadcastcontract "github.com/shutter-network/contracts/v2/bindings/keybroadcastcontract"
-	keypersetmanager "github.com/shutter-network/contracts/v2/bindings/keypersetmanager"
 	sequencerBindings "github.com/shutter-network/contracts/v2/bindings/sequencer"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
 	"gotest.tools/assert"
@@ -69,7 +67,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	if err != nil {
 		return *setup, err
 	}
-	setup.SubmitAccount = submitAccount
+	setup.SubmitAccount = &submitAccount
 
 	// TODO: allow multiple transacting accounts in StressEnvironment.TransactAccounts
 	transactPrivateKey, err := crypto.GenerateKey()
@@ -82,7 +80,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		return *setup, err
 	}
 
-	setup.TransactAccount = transactAccount
+	setup.TransactAccount = &transactAccount
 	err = StoreAccount(transactAccount)
 	if err != nil {
 		return *setup, err
@@ -98,34 +96,25 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	if err != nil {
 		return *setup, err
 	}
-	keyperSetManagerContract, err := keypersetmanager.NewKeypersetmanager(common.HexToAddress(KeyperSetManagerContractAddress), client)
-	if err != nil {
-		return *setup, fmt.Errorf("can not get KeyperSetManager %v", err)
-	}
-	setup.KeyperSetManager = *keyperSetManagerContract
 
 	KeyBroadcastContractAddress, err := ReadStringFromEnv("STRESS_TEST_KEY_BROADCAST_CONTRACT_ADDRESS")
 	if err != nil {
 		return *setup, err
 	}
-	keyBroadcastContract, err := keybroadcastcontract.NewKeybroadcastcontract(common.HexToAddress(KeyBroadcastContractAddress), client)
-	if err != nil {
-		return *setup, fmt.Errorf("can not get KeyBrodcastContract %v", err)
-	}
-
-	setup.KeyBroadcastContract = *keyBroadcastContract
 
 	SequencerContractAddress, err := ReadStringFromEnv("STRESS_TEST_SEQUENCER_CONTRACT_ADDRESS")
 	if err != nil {
 		return *setup, err
 	}
-	setup.SequencerContractAddress = common.HexToAddress(SequencerContractAddress)
-	sequencerContract, err := sequencerBindings.NewSequencer(common.HexToAddress(SequencerContractAddress), client)
-	if err != nil {
-		return *setup, fmt.Errorf("can not get SequencerContract %v", err)
-	}
 
-	setup.Sequencer = *sequencerContract
+	contracts, err := SetupContracts(client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress)
+	if err != nil {
+		return *setup, err
+	}
+	setup.KeyBroadcastContract = *contracts.KeyBroadcastContract
+	setup.KeyperSetManager = *contracts.KeyperSetManager
+	setup.Sequencer = *contracts.Sequencer
+	setup.SequencerContractAddress = contracts.SequencerContractAddress
 
 	return *setup, nil
 }
@@ -155,17 +144,6 @@ func fund(setup StressSetup) error {
 	log.Println("sent funding tx", signedTx.Hash().Hex(), "to", setup.TransactAccount.Address)
 	_, err = bind.WaitMined(context.Background(), setup.Client, signedTx)
 	return err
-}
-
-func defaultGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (GasFeeCap, GasTipCap) {
-	feeCapAndTipCap := big.NewInt(0).Add(suggestedGasPrice, suggestedGasTipCap)
-
-	gasFloat, _ := suggestedGasPrice.Float64()
-	x := int64(gasFloat * 1.5) // fixed delta
-	log.Println("delta is ", x)
-	delta := big.NewInt(x)
-	gasFeeCap := big.NewInt(0).Add(feeCapAndTipCap, delta)
-	return gasFeeCap, suggestedGasTipCap
 }
 
 //lint:ignore U1000 Ignore unused function.
@@ -204,7 +182,7 @@ func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvi
 			From:   setup.TransactAccount.Address,
 			Signer: setup.TransactAccount.Sign,
 		},
-		TransactGasPriceFn:   defaultGasPriceFn,
+		TransactGasPriceFn:   DefaultGasPriceFn,
 		TransactGasLimitFn:   defaultGasLimitFn,
 		InclusionWaitTimeout: time.Duration(time.Minute * 2),
 		InclusionConstraints: func(inclusions []*types.Receipt) error { return nil },
@@ -226,41 +204,20 @@ func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvi
 	if err != nil {
 		return environment, fmt.Errorf("could not query starting nonce %v", err)
 	}
-	environment.SubmitStartingNonce = big.NewInt(int64(submitterNonce))
+	setup.SubmitAccount.Nonce = *big.NewInt(int64(submitterNonce))
 
 	transactNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.TransactAccount.Address)
-	log.Println("Current transacter nonce is", transactNonce)
 	if err != nil {
 		return environment, fmt.Errorf("could not query starting nonce %v", err)
 	}
-	environment.TransactStartingNonce = big.NewInt(int64(transactNonce))
+	setup.TransactAccount.Nonce = *big.NewInt(int64(transactNonce))
 
 	log.Println("eon is ", eon)
 	return environment, nil
 }
 
 func getEonKey(ctx context.Context, setup StressSetup) (uint64, *shcrypto.EonPublicKey, error) {
-	blockNumber, err := setup.Client.BlockNumber(ctx)
-	if err != nil {
-		return 0, nil, fmt.Errorf("could not query blockNumber %v", err)
-	}
-
-	eon, err := setup.KeyperSetManager.GetKeyperSetIndexByBlock(nil, blockNumber+uint64(KeyperSetChangeLookAhead))
-	if err != nil {
-		return 0, nil, fmt.Errorf("could not get eon %v", err)
-	}
-
-	eonKeyBytes, err := setup.KeyBroadcastContract.GetEonKey(nil, eon)
-	if err != nil {
-		return 0, nil, fmt.Errorf("could not get eonKeyBytes %v", err)
-	}
-
-	eonKey := &shcrypto.EonPublicKey{}
-	if err := eonKey.Unmarshal(eonKeyBytes); err != nil {
-		return 0, nil, fmt.Errorf("could not unmarshal eonKeyBytes %v", err)
-	}
-	return eon, eonKey, nil
-
+	return GetEonKey(ctx, setup.Client, setup.KeyperSetManager, setup.KeyBroadcastContract, KeyperSetChangeLookAhead)
 }
 
 func createIdentityPrefix() (shcrypto.Block, error) {
@@ -333,7 +290,7 @@ func submitEncryptedTx(ctx context.Context, setup StressSetup, env *StressEnviro
 
 }
 
-func transact(setup StressSetup, env *StressEnvironment, count int) error {
+func transact(setup *StressSetup, env *StressEnvironment, count int) error {
 
 	value := big.NewInt(1) // in wei
 
@@ -365,7 +322,9 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 	for i := 0; i < count; i++ {
 		gasFeeCap, suggestedGasTipCap := env.TransactGasPriceFn(suggestedGasTipCap, suggestedGasPrice, i, count)
 		gasLimit := env.TransactGasLimitFn(data, &toAddress, i, count)
-		innerNonce := env.TransactStartingNonce.Uint64() + uint64(i)
+		innerNonceP := setup.TransactAccount.UseNonce()
+		innerNonce := innerNonceP.Uint64()
+		log.Printf("inner nonce: %v", innerNonce)
 		tx := types.NewTx(
 			&types.DynamicFeeTx{
 				ChainID:   setup.ChainID,
@@ -388,9 +347,9 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 	}
 	for i := range innerTxs {
 		signedTx := innerTxs[i]
-		submitNonce := big.NewInt(0).Add(env.SubmitStartingNonce, big.NewInt(int64(i)))
-		env.SubmitterOpts.Nonce = submitNonce
-		submitTx, err := submitEncryptedTx(context.Background(), setup, env, signedTx, i)
+		submitNonce := setup.SubmitAccount.UseNonce()
+		env.SubmitterOpts.Nonce = &submitNonce
+		submitTx, err := submitEncryptedTx(context.Background(), *setup, env, signedTx, i)
 		if err != nil {
 			return err
 		}
@@ -436,7 +395,7 @@ func TestStressSingle(t *testing.T) {
 	if err != nil {
 		log.Fatal("could not set up environment", err)
 	}
-	err = transact(setup, &env, 1)
+	err = transact(&setup, &env, 1)
 	assert.NilError(t, err, "not included")
 }
 
@@ -453,7 +412,7 @@ func TestStressDualWait(t *testing.T) {
 	}
 	env.WaitOnEverySubmit = true
 
-	err = transact(setup, &env, 2)
+	err = transact(&setup, &env, 2)
 	assert.NilError(t, err, "not included")
 }
 
@@ -469,7 +428,7 @@ func TestStressDualNoWait(t *testing.T) {
 		log.Fatal("could not set up environment", err)
 	}
 
-	err = transact(setup, &env, 2)
+	err = transact(&setup, &env, 2)
 	assert.NilError(t, err, "not included")
 }
 
@@ -493,7 +452,7 @@ func TestStressDualDuplicatePrefix(t *testing.T) {
 	prefixes = append(prefixes, prefix)
 	env.IdentityPrefixes = prefixes
 
-	err = transact(setup, &env, 2)
+	err = transact(&setup, &env, 2)
 	assert.NilError(t, err, "not included")
 }
 
@@ -509,7 +468,7 @@ func TestStressManyNoWait(t *testing.T) {
 		log.Fatal("could not set up environment", err)
 	}
 
-	err = transact(setup, &env, 47)
+	err = transact(&setup, &env, 47)
 	assert.NilError(t, err, "not included")
 }
 
@@ -541,7 +500,7 @@ func TestStressExceedEncryptedGasLimit(t *testing.T) {
 		}
 		return nil
 	}
-	err = transact(setup, &env, 2)
+	err = transact(&setup, &env, 2)
 	assert.NilError(t, err, "failed")
 }
 
@@ -688,7 +647,7 @@ func TestIncorrectIdentitySuffix(t *testing.T) {
 	}
 	env.RandomIdentitySuffix = true
 
-	err = transact(setup, &env, 1)
+	err = transact(&setup, &env, 1)
 	assert.Error(t, err, "error on WaitMined context deadline exceeded", "this must time out")
 }
 
@@ -734,7 +693,7 @@ func TestFixNonce(t *testing.T) {
 	if err != nil {
 		log.Fatal("could not create setup", err)
 	}
-	err = fixNonce(setup.Client, setup.SubmitAccount)
+	err = fixNonce(setup.Client, *setup.SubmitAccount)
 	if err != nil {
 		log.Fatal(err)
 	}

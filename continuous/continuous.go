@@ -1,10 +1,16 @@
 package continuous
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math/big"
 	"time"
 
+	cryptorand "crypto/rand"
+
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -13,6 +19,8 @@ import (
 	"github.com/shutter-network/nethermind-tests/stress"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
 )
+
+const KeyperSetChangeLookAhead = 2
 
 type Connection struct {
 	db *pgxpool.Pool
@@ -29,6 +37,8 @@ func (s Status) TxCount() int {
 }
 
 type ShutterTx struct {
+	innerTxHash  common.Hash
+	outerTxHash  common.Hash
 	sender       stress.Account
 	prefix       shcrypto.Block
 	triggerBlock int64
@@ -57,6 +67,8 @@ type Configuration struct {
 	submitAccount stress.Account
 	client        *ethclient.Client
 	status        Status
+	contracts     stress.Contracts
+	chainID       *big.Int
 }
 
 func (cfg Configuration) NextAccount() stress.Account {
@@ -66,6 +78,14 @@ func (cfg Configuration) NextAccount() stress.Account {
 type ShutterBlock struct {
 	Number int64
 	Ts     pgtype.Date
+}
+
+func PrefixFromBlockNumber(blockNumber int64) shcrypto.Block {
+	bytes := make([]byte, shcrypto.BlockSize)
+	if blockNumber > 0 {
+		binary.LittleEndian.PutUint64(bytes, uint64(blockNumber))
+	}
+	return shcrypto.Block(bytes)
 }
 
 func createConfiguration() (Configuration, error) {
@@ -86,6 +106,7 @@ func createConfiguration() (Configuration, error) {
 		return cfg, fmt.Errorf("could not query chainId %v", err)
 	}
 
+	cfg.chainID = chainID
 	signerForChain := types.LatestSignerForChainID(chainID)
 
 	submitKeyHex, err := stress.ReadStringFromEnv("CONTINUOUS_TEST_PK")
@@ -112,6 +133,25 @@ func createConfiguration() (Configuration, error) {
 		}
 	}
 	cfg.accounts = accounts
+
+	keyBroadcastAddress, err := stress.ReadStringFromEnv("CONTINUOUS_KEY_BROADCAST_CONTRACT_ADDRESS")
+	if err != nil {
+		return cfg, err
+	}
+	keyperSetAddress, err := stress.ReadStringFromEnv("CONTINUOUS_KEYPER_SET_CONTRACT_ADDRESS")
+	if err != nil {
+		return cfg, err
+	}
+	sequencerAddress, err := stress.ReadStringFromEnv("CONTINUOUS_SEQUENCER_ADDRESS")
+	if err != nil {
+		return cfg, err
+	}
+	contracts, err := stress.SetupContracts(client, keyBroadcastAddress, sequencerAddress, keyperSetAddress)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.contracts = contracts
+
 	return cfg, nil
 }
 
@@ -234,9 +274,58 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	fmt.Printf("\nSENDING NEW TX FOR %v", blockNumber)
 	account := cfg.NextAccount()
 	fmt.Printf("\nUsing %v\n", account.Address.Hex())
+	var data []byte
+	gasLimit := uint64(21000)
+	suggestedGasTipCap, err := cfg.client.SuggestGasTipCap(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	suggestedGasPrice, err := cfg.client.SuggestGasPrice(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	gasFeeCap, suggestedGasTipCap := stress.DefaultGasPriceFn(suggestedGasTipCap, suggestedGasPrice, 0, 1)
+	innerNonceP := account.UseNonce()
+	innerTx := types.NewTx(
+		&types.DynamicFeeTx{
+			ChainID:   cfg.chainID,
+			Nonce:     innerNonceP.Uint64(),
+			GasFeeCap: gasFeeCap,
+			GasTipCap: suggestedGasTipCap,
+			Gas:       gasLimit,
+			To:        &cfg.submitAccount.Address,
+			Value:     big.NewInt(1),
+			Data:      data,
+		},
+	)
+
+	signedInnerTx, err := cfg.submitAccount.Sign(cfg.submitAccount.Address, innerTx)
+	if err != nil {
+		panic(err)
+	}
+	sigma, err := shcrypto.RandomSigma(cryptorand.Reader)
+	if err != nil {
+		panic("could not get random sigma")
+	}
+	identityPrefix := PrefixFromBlockNumber(blockNumber)
+	identity := stress.ComputeIdentity(identityPrefix[:], cfg.submitAccount.Address)
+
+	var buff bytes.Buffer
+	err = signedInnerTx.EncodeRLP(&buff)
+	if err != nil {
+		panic(err)
+	}
+
+	_, eonKey, err := stress.GetEonKey(context.Background(), cfg.client, *cfg.contracts.KeyperSetManager, *cfg.contracts.KeyBroadcastContract, KeyperSetChangeLookAhead)
+	if err != nil {
+		panic(err)
+	}
+	_ = shcrypto.Encrypt(buff.Bytes(), (*shcrypto.EonPublicKey)(eonKey), identity, sigma)
+
 	tx := ShutterTx{
+		innerTxHash:  signedInnerTx.Hash(),
 		sender:       account,
-		prefix:       shcrypto.Block{},
+		prefix:       identityPrefix,
 		triggerBlock: blockNumber,
 		txStatus:     TxStatus(Signed),
 	}
