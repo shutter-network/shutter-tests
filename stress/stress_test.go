@@ -138,13 +138,13 @@ func fund(setup StressSetup) error {
 		return err
 	}
 	var data []byte
-	nonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitAccount.address, nil)
+	nonce, err := setup.Client.NonceAt(context.Background(), setup.SubmitAccount.Address, nil)
 	if err != nil {
 		return err
 	}
 	log.Println("HeadNonce", nonce)
-	tx := types.NewTransaction(nonce, setup.TransactAccount.address, value, gasLimit, gasPrice, data)
-	signedTx, err := setup.SubmitAccount.sign(setup.SubmitAccount.address, tx)
+	tx := types.NewTransaction(nonce, setup.TransactAccount.Address, value, gasLimit, gasPrice, data)
+	signedTx, err := setup.SubmitAccount.Sign(setup.SubmitAccount.Address, tx)
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ func fund(setup StressSetup) error {
 	if err != nil {
 		return err
 	}
-	log.Println("sent funding tx", signedTx.Hash().Hex(), "to", setup.TransactAccount.address)
+	log.Println("sent funding tx", signedTx.Hash().Hex(), "to", setup.TransactAccount.Address)
 	_, err = bind.WaitMined(context.Background(), setup.Client, signedTx)
 	return err
 }
@@ -201,16 +201,16 @@ func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvi
 
 	environment := StressEnvironment{
 		TransacterOpts: bind.TransactOpts{
-			From:   setup.TransactAccount.address,
-			Signer: setup.TransactAccount.sign,
+			From:   setup.TransactAccount.Address,
+			Signer: setup.TransactAccount.Sign,
 		},
 		TransactGasPriceFn:   defaultGasPriceFn,
 		TransactGasLimitFn:   defaultGasLimitFn,
 		InclusionWaitTimeout: time.Duration(time.Minute * 2),
 		InclusionConstraints: func(inclusions []*types.Receipt) error { return nil },
 		SubmitterOpts: bind.TransactOpts{
-			From:   setup.SubmitAccount.address,
-			Signer: setup.SubmitAccount.sign,
+			From:   setup.SubmitAccount.Address,
+			Signer: setup.SubmitAccount.Sign,
 		},
 		SubmissionWaitTimeout: time.Duration(time.Second * 30),
 		Eon:                   eon,
@@ -221,14 +221,14 @@ func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvi
 	if err != nil {
 		return environment, fmt.Errorf("could not get eonKey %v", err)
 	}
-	submitterNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.SubmitAccount.address)
+	submitterNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.SubmitAccount.Address)
 	log.Println("Current submitter nonce is", submitterNonce)
 	if err != nil {
 		return environment, fmt.Errorf("could not query starting nonce %v", err)
 	}
 	environment.SubmitStartingNonce = big.NewInt(int64(submitterNonce))
 
-	transactNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.TransactAccount.address)
+	transactNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.TransactAccount.Address)
 	log.Println("Current transacter nonce is", transactNonce)
 	if err != nil {
 		return environment, fmt.Errorf("could not query starting nonce %v", err)
@@ -319,7 +319,7 @@ func submitEncryptedTx(ctx context.Context, setup StressSetup, env *StressEnviro
 
 	opts.Value = big.NewInt(0).Sub(tx.Cost(), tx.Value())
 
-	encryptedTx, identityPrefix, err := encrypt(ctx, tx, env, setup.SubmitAccount.address, i)
+	encryptedTx, identityPrefix, err := encrypt(ctx, tx, env, setup.SubmitAccount.Address, i)
 	if err != nil {
 		return nil, fmt.Errorf("could not encrypt %v", err)
 	}
@@ -337,7 +337,7 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 
 	value := big.NewInt(1) // in wei
 
-	toAddress := setup.SubmitAccount.address
+	toAddress := setup.SubmitAccount.Address
 	var data []byte
 	var submissions []types.Transaction
 	var innerTxs []types.Transaction
@@ -379,7 +379,7 @@ func transact(setup StressSetup, env *StressEnvironment, count int) error {
 			},
 		)
 
-		signedTx, err := setup.TransactAccount.sign(setup.TransactAccount.address, tx)
+		signedTx, err := setup.TransactAccount.Sign(setup.TransactAccount.Address, tx)
 		if err != nil {
 			return err
 		}
@@ -579,19 +579,19 @@ func TestInception(t *testing.T) {
 			GasFeeCap: gasFeeCap,
 			GasTipCap: gasTipCap,
 			Gas:       uint64(innerGasLimit),
-			To:        &setup.SubmitAccount.address,
+			To:        &setup.SubmitAccount.Address,
 			Value:     big.NewInt(1),
 			Data:      data,
 		},
 	)
 
 	// TODO: we could start a loop here
-	signedInnerTx, err := setup.TransactAccount.sign(setup.TransactAccount.address, innerTx)
+	signedInnerTx, err := setup.TransactAccount.Sign(setup.TransactAccount.Address, innerTx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	encryptedInnerTx, innerIdentityPrefix, err := encrypt(ctx, *signedInnerTx, &env, setup.TransactAccount.address, 1)
+	encryptedInnerTx, innerIdentityPrefix, err := encrypt(ctx, *signedInnerTx, &env, setup.TransactAccount.Address, 1)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -616,7 +616,7 @@ func TestInception(t *testing.T) {
 	gasFeeCap, gasTipCap = env.TransactGasPriceFn(price, tip, 0, 1)
 
 	middleCallMsg := ethereum.CallMsg{
-		From:  setup.TransactAccount.address,
+		From:  setup.TransactAccount.Address,
 		To:    &setup.SequencerContractAddress,
 		Value: signedInnerTx.Cost(),
 		Data:  input,
@@ -639,12 +639,12 @@ func TestInception(t *testing.T) {
 		},
 	)
 
-	signedMiddleTx, err := setup.TransactAccount.sign(setup.TransactAccount.address, middleTx)
+	signedMiddleTx, err := setup.TransactAccount.Sign(setup.TransactAccount.Address, middleTx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	middleTxEncryptedMsg, middleIdentityPrefix, err := encrypt(ctx, *signedMiddleTx, &env, setup.SubmitAccount.address, 1)
+	middleTxEncryptedMsg, middleIdentityPrefix, err := encrypt(ctx, *signedMiddleTx, &env, setup.SubmitAccount.Address, 1)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -717,12 +717,12 @@ func TestEmptyAccounts(t *testing.T) {
 		if err != nil {
 			log.Fatal("could not create account from privatekey", err, pks[i])
 		}
-		balance, err := setup.Client.BalanceAt(context.Background(), account.address, big.NewInt(int64(block)))
+		balance, err := setup.Client.BalanceAt(context.Background(), account.Address, big.NewInt(int64(block)))
 		if err == nil {
-			log.Println(account.address.Hex(), balance)
+			log.Println(account.Address.Hex(), balance)
 		}
 		if balance.Uint64() > 0 {
-			drain(context.Background(), account, balance.Uint64(), setup.SubmitAccount.address, setup.Client)
+			drain(context.Background(), account, balance.Uint64(), setup.SubmitAccount.Address, setup.Client)
 		}
 	}
 }

@@ -28,9 +28,9 @@ import (
 )
 
 type Account struct {
-	address    common.Address
+	Address    common.Address
 	privateKey *ecdsa.PrivateKey
-	sign       bind.SignerFn
+	Sign       bind.SignerFn
 }
 
 // contains all the setup required to interact with the chain
@@ -106,8 +106,8 @@ func AccountFromPrivateKey(privateKey *ecdsa.PrivateKey, signerForChain types.Si
 
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 
-	account.address = fromAddress
-	account.sign = func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
+	account.Address = fromAddress
+	account.Sign = func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
 		if address != fromAddress {
 			return nil, errors.New("not authorized")
 		}
@@ -139,7 +139,7 @@ func StoreAccount(account Account) error {
 	if err != nil {
 		return err
 	}
-	_, err = encoder.Write(account.address.Bytes())
+	_, err = encoder.Write(account.Address.Bytes())
 	if err != nil {
 		return err
 	}
@@ -186,20 +186,20 @@ func fixNonce(client *ethclient.Client, account Account) error {
 	gasLimit := uint64(21000)
 
 	var data []byte
-	headNonce, err := client.NonceAt(context.Background(), account.address, nil)
+	headNonce, err := client.NonceAt(context.Background(), account.Address, nil)
 	if err != nil {
 		return err
 	}
 	log.Println("HeadNonce", headNonce)
 
-	pendingNonce, err := client.PendingNonceAt(context.Background(), account.address)
+	pendingNonce, err := client.PendingNonceAt(context.Background(), account.Address)
 	if err != nil {
 		return err
 	}
 	log.Println("PendingNonce", pendingNonce)
 	var txs []types.Transaction
 	for i := uint64(0); i < pendingNonce-headNonce; i++ {
-		headNonce, err := client.NonceAt(context.Background(), account.address, nil)
+		headNonce, err := client.NonceAt(context.Background(), account.Address, nil)
 		if err != nil {
 			return err
 		}
@@ -210,8 +210,8 @@ func fixNonce(client *ethclient.Client, account Account) error {
 			return err
 		}
 		gasPrice = gasPrice.Add(gasPrice, gasPrice)
-		tx := types.NewTransaction(headNonce+i, account.address, value, gasLimit, gasPrice, data)
-		signedTx, err := account.sign(account.address, tx)
+		tx := types.NewTransaction(headNonce+i, account.Address, value, gasLimit, gasPrice, data)
+		signedTx, err := account.Sign(account.Address, tx)
 		if err != nil {
 			return err
 		}
@@ -219,7 +219,7 @@ func fixNonce(client *ethclient.Client, account Account) error {
 		if err != nil {
 			log.Println("error on send", err)
 		}
-		log.Println("sent nonce fix tx", signedTx.Hash().Hex(), "to", account.address)
+		log.Println("sent nonce fix tx", signedTx.Hash().Hex(), "to", account.Address)
 		txs = append(txs, *signedTx)
 	}
 
@@ -229,7 +229,7 @@ func fixNonce(client *ethclient.Client, account Account) error {
 		if err != nil {
 			log.Println("error on wait", err)
 		}
-		headNonce, err := client.NonceAt(context.Background(), account.address, nil)
+		headNonce, err := client.NonceAt(context.Background(), account.Address, nil)
 		if err != nil {
 			return err
 		}
@@ -247,13 +247,13 @@ func drain(ctx context.Context, account Account, balance uint64, target common.A
 	remaining := balance - gasLimit*gasPrice.Uint64()
 	data := make([]byte, 0)
 
-	nonce, err := client.PendingNonceAt(ctx, account.address)
+	nonce, err := client.PendingNonceAt(ctx, account.Address)
 	if err != nil {
 		log.Println("could not query nonce", err)
 	}
 	tx := types.NewTransaction(nonce, target, big.NewInt(int64(remaining)), gasLimit, gasPrice, data)
 
-	signed, err := account.sign(account.address, tx)
+	signed, err := account.Sign(account.Address, tx)
 	if err != nil {
 		log.Println("could not sign transaction", err)
 	}

@@ -21,6 +21,11 @@ type Connection struct {
 type Status struct {
 	lastShutterTS pgtype.Date
 	txInFlight    []ShutterTx
+	txDone        []ShutterTx
+}
+
+func (s Status) TxCount() int {
+	return len(s.txInFlight) + len(s.txDone)
 }
 
 type ShutterTx struct {
@@ -51,6 +56,11 @@ type Configuration struct {
 	accounts      []stress.Account
 	submitAccount stress.Account
 	client        *ethclient.Client
+	status        Status
+}
+
+func (cfg Configuration) NextAccount() stress.Account {
+	return cfg.accounts[cfg.status.TxCount()%len(cfg.accounts)]
 }
 
 type ShutterBlock struct {
@@ -159,7 +169,6 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 	for rows.Next() {
 		rows.Scan(&ts, &count)
 		if !ts.Time.IsZero() {
-			fmt.Println(ts.Time, count)
 			status.lastShutterTS = ts
 		}
 	}
@@ -216,13 +225,22 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	return res
 }
 
-func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg Configuration) {
+func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Configuration) {
 	// get available account from cfg
 	// create prefix from trigger data
 	// encrypt tx
 	// send to sequencer
 	// add to txInFlight
 	fmt.Printf("\nSENDING NEW TX FOR %v", blockNumber)
+	account := cfg.NextAccount()
+	fmt.Printf("\nUsing %v\n", account.Address.Hex())
+	tx := ShutterTx{
+		sender:       account,
+		prefix:       shcrypto.Block{},
+		triggerBlock: blockNumber,
+		txStatus:     TxStatus(Signed),
+	}
+	cfg.status.txInFlight = append(cfg.status.txInFlight, tx)
 }
 
 func Setup() (Configuration, error) {
