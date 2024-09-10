@@ -34,8 +34,17 @@ type Account struct {
 	Nonce      big.Int
 }
 
+func (acc *Account) Opts() *bind.TransactOpts {
+	opts := bind.TransactOpts{}
+	nonce := acc.UseNonce()
+	opts.Nonce = &nonce
+	opts.From = acc.Address
+	opts.Signer = acc.Sign
+	return &opts
+}
+
 // Returns the currently stored account nonce and increases the stored value
-func (acc Account) UseNonce() big.Int {
+func (acc *Account) UseNonce() big.Int {
 	one := big.NewInt(1)
 	result := acc.Nonce
 	acc.Nonce.Add(&result, one)
@@ -74,16 +83,38 @@ type StressEnvironment struct {
 type GasFeeCap *big.Int
 type GasTipCap *big.Int
 
+type GasCalculation struct {
+	Fee GasFeeCap
+	Tip GasTipCap
+}
+
 type GasLimitFn func(data []byte, toAddress *common.Address, i int, count int) uint64
 
 type GasPriceFn func(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (GasFeeCap, GasTipCap)
+
+// applies the DefaultGasPriceFn to the client suggested gas
+func GasCalculationFromClient(ctx context.Context, client *ethclient.Client) (GasCalculation, error) {
+	result := GasCalculation{}
+	gasTipCap, err := client.SuggestGasTipCap(ctx)
+	if err != nil {
+		return result, err
+	}
+	suggestedGasPrice, err := client.SuggestGasPrice(ctx)
+	if err != nil {
+		return result, err
+	}
+	gasFeeCap, calculatedGasTipCap := DefaultGasPriceFn(gasTipCap, suggestedGasPrice, 0, 1)
+
+	result.Fee = gasFeeCap
+	result.Tip = calculatedGasTipCap
+	return result, nil
+}
 
 func DefaultGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (GasFeeCap, GasTipCap) {
 	feeCapAndTipCap := big.NewInt(0).Add(suggestedGasPrice, suggestedGasTipCap)
 
 	gasFloat, _ := suggestedGasPrice.Float64()
 	x := int64(gasFloat * 1.5) // fixed delta
-	log.Println("delta is ", x)
 	delta := big.NewInt(x)
 	gasFeeCap := big.NewInt(0).Add(feeCapAndTipCap, delta)
 	return gasFeeCap, suggestedGasTipCap
@@ -91,7 +122,7 @@ func DefaultGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, 
 
 type ConstraintFn func(inclusions []*types.Receipt) error
 
-func waitForTx(tx types.Transaction, description string, timeout time.Duration, client *ethclient.Client) (*types.Receipt, error) {
+func WaitForTx(tx types.Transaction, description string, timeout time.Duration, client *ethclient.Client) (*types.Receipt, error) {
 	log.Println("waiting for "+description+" ", tx.Hash().Hex())
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -336,15 +367,6 @@ func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, Seque
 	}
 
 	setup.Sequencer = sequencerContract
-	blockNumber, err := client.BlockNumber(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	eon, err := keyperSetManagerContract.GetKeyperSetIndexByBlock(nil, blockNumber+uint64(2))
-	if err != nil {
-		log.Fatal(err, ": ", KeyperSetManagerContractAddress)
-	}
-	log.Println(eon)
 	return setup, nil
 }
 
@@ -359,7 +381,6 @@ func GetEonKey(
 		return 0, nil, fmt.Errorf("could not query blockNumber %v", err)
 	}
 
-	// could not get eon no contract code at given address
 	eon, err := keyperSetManager.GetKeyperSetIndexByBlock(nil, blockNumber+uint64(KeyperSetChangeLookAhead))
 	if err != nil {
 		return 0, nil, fmt.Errorf("could not get eon %v", err)

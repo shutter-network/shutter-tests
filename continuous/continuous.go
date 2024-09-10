@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"math/big"
+	"os"
 	"time"
 
 	cryptorand "crypto/rand"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -21,6 +23,8 @@ import (
 )
 
 const KeyperSetChangeLookAhead = 2
+const NumFundedAccounts = 6
+const MinimalFunding = int64(500000000000000000) // 0.5 ETH in wei
 
 type Connection struct {
 	db *pgxpool.Pool
@@ -37,21 +41,23 @@ func (s Status) TxCount() int {
 }
 
 type ShutterTx struct {
-	innerTxHash  common.Hash
-	outerTxHash  common.Hash
+	innerTx      *types.Transaction
+	outerTx      *types.Transaction
 	sender       stress.Account
 	prefix       shcrypto.Block
 	triggerBlock int64
 	txStatus     TxStatus
+	ctx          context.Context
 }
 
 type TxStatus int
 
 const (
-	Signed      TxStatus = iota + 1 // user transaction was encrypted and tx to the sequencer contract was signed and sent
-	Sequenced                       // tx to sequencer contract was mined
-	Included                        // next shutterized block was found and the tx was included
-	NotIncluded                     // next shutterized block was found, but this tx was not part of it
+	Signed        TxStatus = iota + 1 // user transaction was encrypted and tx to the sequencer contract was signed and sent
+	Sequenced                         // tx to sequencer contract was mined
+	Included                          // next shutterized block was found and the tx was included
+	NotIncluded                       // next shutterized block was found, but this tx was not part of it
+	SystemFailure                     // we could not assess the status of this tx, e.g. because the client connection failed
 )
 
 func (ts TxStatus) String() string {
@@ -88,6 +94,71 @@ func PrefixFromBlockNumber(blockNumber int64) shcrypto.Block {
 	return shcrypto.Block(bytes)
 }
 
+func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Signer) []stress.Account {
+	var result []stress.Account
+	fd, err := os.Open("pk.hex")
+	if err != nil {
+		fmt.Println("could not open pk.hex")
+	}
+	defer fd.Close()
+	pks, err := stress.ReadPks(fd)
+	if err != nil {
+		fmt.Printf("error when reading private keys %v\n", err)
+	}
+	for _, pk := range pks {
+		acc, err := stress.AccountFromPrivateKey(pk, signerForChain)
+		if err != nil {
+			fmt.Printf("could not retrieve account %v\n", err)
+		}
+		result = append(result, acc)
+		if len(result) == num {
+			break
+		}
+	}
+	for _, account := range result {
+		accNonce, err := client.NonceAt(context.Background(), account.Address, nil)
+		if err != nil {
+			fmt.Printf("failed to get nonce for %v: %v\n", account.Address, err)
+		}
+		account.Nonce = *big.NewInt(int64(accNonce))
+	}
+	return result
+}
+
+func fundNewAccount(account stress.Account, amount int64, submitAccount *stress.Account, client *ethclient.Client) error {
+	target := big.NewInt(amount)
+	current, err := client.BalanceAt(context.Background(), account.Address, nil)
+	if err != nil {
+		return err
+	}
+	value := big.NewInt(0).Sub(target, current)
+	if value.Int64() <= 0 {
+		return nil
+	}
+	gasLimit := uint64(21000)
+	gasPrice, err := client.SuggestGasPrice(context.Background())
+	if err != nil {
+		return err
+	}
+	var data []byte
+	nonce := submitAccount.UseNonce()
+	if err != nil {
+		return err
+	}
+	tx := types.NewTransaction(nonce.Uint64(), account.Address, value, gasLimit, gasPrice, data)
+	signedTx, err := submitAccount.Sign(submitAccount.Address, tx)
+	if err != nil {
+		return err
+	}
+	err = client.SendTransaction(context.Background(), signedTx)
+	if err != nil {
+		return err
+	}
+	log.Println("sent funding tx", signedTx.Hash().Hex(), "to", signedTx.To)
+	_, err = bind.WaitMined(context.Background(), client, signedTx)
+	return err
+}
+
 func createConfiguration() (Configuration, error) {
 	cfg := Configuration{}
 	RpcUrl, err := stress.ReadStringFromEnv("CONTINUOUS_TEST_RPC_URL")
@@ -121,15 +192,29 @@ func createConfiguration() (Configuration, error) {
 	if err != nil {
 		return cfg, err
 	}
-	cfg.submitAccount = submitAccount
-	accounts, err := createAccounts(6, signerForChain)
+	fmt.Printf("submit account is %v\n", submitAccount.Address.Hex())
+	submitNonce, err := client.NonceAt(context.Background(), submitAccount.Address, nil)
 	if err != nil {
 		return cfg, err
 	}
-	for _, account := range accounts {
-		err = stress.StoreAccount(account)
+	submitAccount.Nonce = *big.NewInt(int64(submitNonce))
+	cfg.submitAccount = submitAccount
+	accounts := retrieveAccounts(NumFundedAccounts, client, signerForChain)
+	createdAccounts, err := createAccounts(NumFundedAccounts-len(accounts), signerForChain)
+	if err != nil {
+		return cfg, err
+	}
+	for _, created := range createdAccounts {
+		err = stress.StoreAccount(created)
 		if err != nil {
-			fmt.Println(err)
+			return cfg, err
+		}
+		accounts = append(accounts, created)
+	}
+	for i := range accounts {
+		err = fundNewAccount(accounts[i], MinimalFunding, &submitAccount, client)
+		if err != nil {
+			return cfg, err
 		}
 	}
 	cfg.accounts = accounts
@@ -266,33 +351,28 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 }
 
 func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Configuration) {
-	// [ ] func accounts in cfg
+	// [x] fund accounts in cfg
 	// [x] get available account from cfg
 	// [x] create prefix from trigger data
 	// [x] encrypt tx
-	// [ ] send to sequencer
+	// [x] send to sequencer
 	// [x] add to txInFlight
 	fmt.Printf("\nSENDING NEW TX FOR %v", blockNumber)
 	account := cfg.NextAccount()
 	fmt.Printf("\nUsing %v\n", account.Address.Hex())
 	var data []byte
 	gasLimit := uint64(21000)
-	suggestedGasTipCap, err := cfg.client.SuggestGasTipCap(context.Background())
+	gas, err := stress.GasCalculationFromClient(context.Background(), cfg.client)
 	if err != nil {
 		panic(err)
 	}
-	suggestedGasPrice, err := cfg.client.SuggestGasPrice(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	gasFeeCap, suggestedGasTipCap := stress.DefaultGasPriceFn(suggestedGasTipCap, suggestedGasPrice, 0, 1)
 	innerNonceP := account.UseNonce()
 	innerTx := types.NewTx(
 		&types.DynamicFeeTx{
 			ChainID:   cfg.chainID,
 			Nonce:     innerNonceP.Uint64(),
-			GasFeeCap: gasFeeCap,
-			GasTipCap: suggestedGasTipCap,
+			GasFeeCap: gas.Fee,
+			GasTipCap: gas.Tip,
 			Gas:       gasLimit,
 			To:        &cfg.submitAccount.Address,
 			Value:     big.NewInt(1),
@@ -317,21 +397,96 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 		panic(err)
 	}
 
-	// could not get eon no contract code at given address
-	_, eonKey, err := stress.GetEonKey(context.Background(), cfg.client, cfg.contracts.KeyperSetManager, cfg.contracts.KeyBroadcastContract, KeyperSetChangeLookAhead)
+	eon, eonKey, err := stress.GetEonKey(context.Background(), cfg.client, cfg.contracts.KeyperSetManager, cfg.contracts.KeyBroadcastContract, KeyperSetChangeLookAhead)
 	if err != nil {
 		panic(err)
 	}
-	_ = shcrypto.Encrypt(buff.Bytes(), (*shcrypto.EonPublicKey)(eonKey), identity, sigma)
+	encrypted := shcrypto.Encrypt(buff.Bytes(), (*shcrypto.EonPublicKey)(eonKey), identity, sigma)
+	opts := cfg.submitAccount.Opts()
+
+	opts.Value = big.NewInt(0).Sub(signedInnerTx.Cost(), signedInnerTx.Value())
+
+	fmt.Println(opts)
+	outerTx, err := cfg.contracts.Sequencer.SubmitEncryptedTransaction(
+		opts, eon, identityPrefix, encrypted.Marshal(), new(big.Int).SetUint64(signedInnerTx.Gas()),
+	)
+	if err != nil {
+		panic(err)
+	}
 
 	tx := ShutterTx{
-		innerTxHash:  signedInnerTx.Hash(),
+		outerTx:      outerTx,
+		innerTx:      signedInnerTx,
 		sender:       account,
 		prefix:       identityPrefix,
 		triggerBlock: blockNumber,
 		txStatus:     TxStatus(Signed),
 	}
 	cfg.status.txInFlight = append(cfg.status.txInFlight, tx)
+	go WatchTx(&tx, cfg.client)
+}
+
+func WatchTx(tx *ShutterTx, client *ethclient.Client) {
+	submissionReceipt, err := stress.WaitForTx(*tx.outerTx, "submission", time.Hour, client)
+	if err != nil {
+		tx.txStatus = TxStatus(SystemFailure)
+	}
+	if submissionReceipt.Status == 1 {
+		tx.txStatus = TxStatus(Sequenced)
+	} else {
+		tx.txStatus = TxStatus(SystemFailure)
+	}
+	if tx.txStatus == SystemFailure {
+		// TODO: forfeit nonce
+		return
+	}
+	includedReceipt, err := stress.WaitForTx(*tx.innerTx, "inclusion", time.Hour, client)
+	if err != nil {
+		tx.txStatus = TxStatus(SystemFailure)
+	}
+	if includedReceipt.Status == 1 {
+		tx.txStatus = TxStatus(Included)
+	} else {
+		tx.txStatus = TxStatus(NotIncluded)
+	}
+	// [ ] wait for submit
+	// [ ] wait for failure signal
+	// [ ] on failure: forfeit account nonce
+	// [ ] move to txDone
+	fmt.Println(tx)
+}
+
+func forfeitNonce(account stress.Account, client *ethclient.Client) error {
+	nonce := account.Nonce
+	chainId, err := client.ChainID(context.Background())
+	if err != nil {
+		return err
+	}
+	gasLimit := uint64(21000)
+	var data []byte
+	gas, err := stress.GasCalculationFromClient(context.Background(), client)
+	if err != nil {
+		return err
+	}
+	tx := types.NewTx(
+		&types.DynamicFeeTx{
+			ChainID:   chainId,
+			Nonce:     nonce.Uint64(),
+			GasFeeCap: gas.Fee,
+			GasTipCap: gas.Tip,
+			Gas:       gasLimit,
+			To:        &account.Address,
+			Value:     big.NewInt(1),
+			Data:      data,
+		},
+	)
+
+	signed, err := account.Sign(account.Address, tx)
+	if err != nil {
+		return err
+	}
+	err = client.SendTransaction(context.Background(), signed)
+	return err
 }
 
 func Setup() (Configuration, error) {
