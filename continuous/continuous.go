@@ -497,7 +497,7 @@ func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 	}
 	if tx.txStatus != Sequenced {
 		log.Println(tx)
-		err = forfeitNonce(*tx.sender, client)
+		err = forfeitNonce(tx.innerTx.Nonce(), *tx.sender, client)
 		if err != nil {
 			log.Println("could not reset nonce", err)
 		}
@@ -506,7 +506,7 @@ func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 	includedReceipt, err := utils.WaitForTxCtx(tx.ctx, *tx.innerTx, fmt.Sprintf("inclusion[%v]", tx.triggerBlock), client)
 	select {
 	case <-tx.ctx.Done():
-		err = forfeitNonce(*tx.sender, client)
+		err = forfeitNonce(tx.innerTx.Nonce(), *tx.sender, client)
 		if err != nil {
 			log.Println("could not reset nonce", err)
 		}
@@ -526,19 +526,15 @@ func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 	if err != nil {
 		tx.txStatus = TxStatus(SystemFailure)
 	}
-	if includedReceipt.Status == 1 {
+	if includedReceipt != nil {
 		tx.txStatus = TxStatus(Included)
 		tx.inclusionBlock = includedReceipt.BlockNumber.Int64()
 		log.Printf("INCLUDED!!! %v\n", tx.innerTx.Hash())
-	} else {
-		// FIXME: failure status would still mean included...
-		tx.txStatus = TxStatus(NotIncluded)
 	}
 	log.Println(tx)
 }
 
-func forfeitNonce(account utils.Account, client *ethclient.Client) error {
-	nonce := account.Nonce
+func forfeitNonce(nonce uint64, account utils.Account, client *ethclient.Client) error {
 	chainId, err := client.ChainID(context.Background())
 	if err != nil {
 		return err
@@ -552,7 +548,7 @@ func forfeitNonce(account utils.Account, client *ethclient.Client) error {
 	tx := types.NewTx(
 		&types.DynamicFeeTx{
 			ChainID:   chainId,
-			Nonce:     nonce.Uint64(),
+			Nonce:     nonce,
 			GasFeeCap: gas.Fee,
 			GasTipCap: gas.Tip,
 			Gas:       gasLimit,
