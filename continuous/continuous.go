@@ -17,7 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/shutter-network/nethermind-tests/stress"
+	"github.com/shutter-network/nethermind-tests/utils"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
 )
 
@@ -40,14 +40,39 @@ func (s Status) TxCount() int {
 }
 
 type ShutterTx struct {
-	innerTx      *types.Transaction
-	outerTx      *types.Transaction
-	sender       *stress.Account
-	prefix       shcrypto.Block
-	triggerBlock int64
-	txStatus     TxStatus
-	ctx          context.Context
-	cancel       context.CancelFunc
+	innerTx         *types.Transaction
+	outerTx         *types.Transaction
+	sender          *utils.Account
+	prefix          shcrypto.Block
+	triggerBlock    int64
+	submissionBlock int64
+	inclusionBlock  int64
+	txStatus        TxStatus
+	ctx             context.Context
+	cancel          context.CancelFunc
+}
+
+func (tx *ShutterTx) String() string {
+	var outerTxHash string
+	var innerTxHash string
+	if tx.innerTx == nil {
+		innerTxHash = "nil"
+	} else {
+		innerTxHash = tx.innerTx.Hash().Hex()
+	}
+	if tx.outerTx == nil {
+		outerTxHash = "nil"
+	} else {
+		outerTxHash = tx.outerTx.Hash().Hex()
+	}
+	return fmt.Sprintf("ShutterTx[%v]\ntrig:\t%v\nsubm:\t%v: %v\nincl:\t%v: %v",
+		tx.txStatus,
+		tx.triggerBlock,
+		tx.submissionBlock,
+		outerTxHash,
+		tx.inclusionBlock,
+		innerTxHash,
+	)
 }
 
 type TxStatus int
@@ -61,7 +86,7 @@ const (
 )
 
 func (ts TxStatus) String() string {
-	return [...]string{"Signed", "Sequenced", "NotIncluded", "Included"}[ts-1]
+	return [...]string{"Signed", "Sequenced", "Included", "NotIncluded", "SystemFailure"}[ts-1]
 }
 
 func (ts TxStatus) EnumIndex() int {
@@ -69,15 +94,15 @@ func (ts TxStatus) EnumIndex() int {
 }
 
 type Configuration struct {
-	accounts      []stress.Account
-	submitAccount stress.Account
+	accounts      []utils.Account
+	submitAccount utils.Account
 	client        *ethclient.Client
 	status        Status
-	contracts     stress.Contracts
+	contracts     utils.Contracts
 	chainID       *big.Int
 }
 
-func (cfg *Configuration) NextAccount() *stress.Account {
+func (cfg *Configuration) NextAccount() *utils.Account {
 	return &cfg.accounts[cfg.status.TxCount()%len(cfg.accounts)]
 }
 
@@ -94,19 +119,19 @@ func PrefixFromBlockNumber(blockNumber int64) shcrypto.Block {
 	return shcrypto.Block(bytes)
 }
 
-func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Signer) []stress.Account {
-	var result []stress.Account
+func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Signer) []utils.Account {
+	var result []utils.Account
 	fd, err := os.Open("pk.hex")
 	if err != nil {
 		fmt.Println("could not open pk.hex")
 	}
 	defer fd.Close()
-	pks, err := stress.ReadPks(fd)
+	pks, err := utils.ReadPks(fd)
 	if err != nil {
 		fmt.Printf("error when reading private keys %v\n", err)
 	}
 	for _, pk := range pks {
-		acc, err := stress.AccountFromPrivateKey(pk, signerForChain)
+		acc, err := utils.AccountFromPrivateKey(pk, signerForChain)
 		if err != nil {
 			fmt.Printf("could not retrieve account %v\n", err)
 		}
@@ -115,17 +140,18 @@ func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Si
 			break
 		}
 	}
-	for _, account := range result {
-		accNonce, err := client.NonceAt(context.Background(), account.Address, nil)
+	for i := range result {
+		accNonce, err := client.NonceAt(context.Background(), result[i].Address, nil)
 		if err != nil {
-			fmt.Printf("failed to get nonce for %v: %v\n", account.Address, err)
+			fmt.Printf("failed to get nonce for %v: %v\n", result[i].Address, err)
 		}
-		account.Nonce = big.NewInt(int64(accNonce))
+		log.Printf("setting account nonce for %v to %v\n", result[i].Address.Hex(), accNonce)
+		result[i].Nonce = big.NewInt(int64(accNonce))
 	}
 	return result
 }
 
-func fundNewAccount(account stress.Account, amount int64, submitAccount *stress.Account, client *ethclient.Client) error {
+func fundNewAccount(account utils.Account, amount int64, submitAccount *utils.Account, client *ethclient.Client) error {
 	target := big.NewInt(amount)
 	current, err := client.BalanceAt(context.Background(), account.Address, nil)
 	if err != nil {
@@ -157,14 +183,14 @@ func fundNewAccount(account stress.Account, amount int64, submitAccount *stress.
 	if err != nil {
 		return err
 	}
-	log.Println("sent funding tx", signedTx.Hash().Hex(), "to", signedTx.To)
+	log.Println("sent funding tx", signedTx.Hash().Hex(), "to", signedTx.To().Hex())
 	_, err = bind.WaitMined(context.Background(), client, signedTx)
 	return err
 }
 
 func createConfiguration() (Configuration, error) {
 	cfg := Configuration{}
-	RpcUrl, err := stress.ReadStringFromEnv("CONTINUOUS_TEST_RPC_URL")
+	RpcUrl, err := utils.ReadStringFromEnv("CONTINUOUS_TEST_RPC_URL")
 	if err != nil {
 		return cfg, err
 	}
@@ -183,7 +209,7 @@ func createConfiguration() (Configuration, error) {
 	cfg.chainID = chainID
 	signerForChain := types.LatestSignerForChainID(chainID)
 
-	submitKeyHex, err := stress.ReadStringFromEnv("CONTINUOUS_TEST_PK")
+	submitKeyHex, err := utils.ReadStringFromEnv("CONTINUOUS_TEST_PK")
 	if err != nil {
 		return cfg, err
 	}
@@ -191,7 +217,7 @@ func createConfiguration() (Configuration, error) {
 	if err != nil {
 		return cfg, err
 	}
-	submitAccount, err := stress.AccountFromPrivateKey(submitPrivateKey, signerForChain)
+	submitAccount, err := utils.AccountFromPrivateKey(submitPrivateKey, signerForChain)
 	if err != nil {
 		return cfg, err
 	}
@@ -208,7 +234,7 @@ func createConfiguration() (Configuration, error) {
 		return cfg, err
 	}
 	for _, created := range createdAccounts {
-		err = stress.StoreAccount(created)
+		err = utils.StoreAccount(created)
 		if err != nil {
 			return cfg, err
 		}
@@ -222,19 +248,19 @@ func createConfiguration() (Configuration, error) {
 	}
 	cfg.accounts = accounts
 
-	keyBroadcastAddress, err := stress.ReadStringFromEnv("CONTINUOUS_KEY_BROADCAST_CONTRACT_ADDRESS")
+	keyBroadcastAddress, err := utils.ReadStringFromEnv("CONTINUOUS_KEY_BROADCAST_CONTRACT_ADDRESS")
 	if err != nil {
 		return cfg, err
 	}
-	keyperSetAddress, err := stress.ReadStringFromEnv("CONTINUOUS_KEYPER_SET_CONTRACT_ADDRESS")
+	keyperSetAddress, err := utils.ReadStringFromEnv("CONTINUOUS_KEYPER_SET_CONTRACT_ADDRESS")
 	if err != nil {
 		return cfg, err
 	}
-	sequencerAddress, err := stress.ReadStringFromEnv("CONTINUOUS_SEQUENCER_ADDRESS")
+	sequencerAddress, err := utils.ReadStringFromEnv("CONTINUOUS_SEQUENCER_ADDRESS")
 	if err != nil {
 		return cfg, err
 	}
-	contracts, err := stress.SetupContracts(client, keyBroadcastAddress, sequencerAddress, keyperSetAddress)
+	contracts, err := utils.SetupContracts(client, keyBroadcastAddress, sequencerAddress, keyperSetAddress)
 	if err != nil {
 		return cfg, err
 	}
@@ -243,14 +269,14 @@ func createConfiguration() (Configuration, error) {
 	return cfg, nil
 }
 
-func createAccounts(num int, signerForChain types.Signer) ([]stress.Account, error) {
-	accounts := make([]stress.Account, num)
+func createAccounts(num int, signerForChain types.Signer) ([]utils.Account, error) {
+	accounts := make([]utils.Account, num)
 	for i := 0; i < num; i++ {
 		pk, err := crypto.GenerateKey()
 		if err != nil {
 			return accounts, err
 		}
-		account, err := stress.AccountFromPrivateKey(pk, signerForChain)
+		account, err := utils.AccountFromPrivateKey(pk, signerForChain)
 		if err != nil {
 			return accounts, err
 		}
@@ -276,7 +302,7 @@ func NewConnection() Connection {
 }
 
 func QueryAllShutterBlocks(out chan<- ShutterBlock) {
-	waitBetweenQueries := 5 * time.Second
+	waitBetweenQueries := 1 * time.Second
 	status := Status{lastShutterTS: pgtype.Date{}}
 	connection := NewConnection()
 	query := `
@@ -338,10 +364,7 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	for rows.Next() {
 		rows.Scan(&block, &ts, &count)
 		if !ts.Time.IsZero() {
-			fmt.Printf("\nFOUND NEW SHUTTER BLOCK %v: %v [%v]", block, ts.Time, count)
-		}
-		if count > 1 {
-			fmt.Printf("missed some blocks: %v", count-1)
+			fmt.Printf("\nFOUND NEW SHUTTER BLOCK %v: %v [%v txs]", block, ts.Time, count-1)
 		}
 	}
 	if rows.Err() != nil {
@@ -365,12 +388,12 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	fmt.Printf("\nUsing %v\n", account.Address.Hex())
 	gasLimit := uint64(21000)
 	var data []byte
-	gas, err := stress.GasCalculationFromClient(context.Background(), cfg.client, stress.DefaultGasPriceFn)
+	gas, err := utils.GasCalculationFromClient(context.Background(), cfg.client, utils.DefaultGasPriceFn)
 	if err != nil {
 		panic(err)
 	}
 	identityPrefix := PrefixFromBlockNumber(blockNumber)
-	identity := stress.ComputeIdentity(identityPrefix[:], cfg.submitAccount.Address)
+	identity := utils.ComputeIdentity(identityPrefix[:], cfg.submitAccount.Address)
 	innerNonceP := account.UseNonce()
 	innerTx := types.NewTx(
 		&types.DynamicFeeTx{
@@ -407,7 +430,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 		panic(err)
 	}
 
-	eon, eonKey, err := stress.GetEonKey(context.Background(), cfg.client, cfg.contracts.KeyperSetManager, cfg.contracts.KeyBroadcastContract, KeyperSetChangeLookAhead)
+	eon, eonKey, err := utils.GetEonKey(context.Background(), cfg.client, cfg.contracts.KeyperSetManager, cfg.contracts.KeyBroadcastContract, KeyperSetChangeLookAhead)
 	if err != nil {
 		panic(err)
 	}
@@ -416,7 +439,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 
 	opts.Value = big.NewInt(0).Sub(signedInnerTx.Cost(), signedInnerTx.Value())
 
-	submitGas, err := stress.GasCalculationFromClient(context.Background(), cfg.client, stress.HighPriorityGasPriceFn)
+	submitGas, err := utils.GasCalculationFromClient(context.Background(), cfg.client, utils.HighPriorityGasPriceFn)
 	if err != nil {
 		panic(err)
 	}
@@ -447,25 +470,28 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 }
 
 func WatchTx(tx *ShutterTx, client *ethclient.Client) {
-	submissionReceipt, err := stress.WaitForTx(*tx.outerTx, fmt.Sprintf("submission[%v]", tx.triggerBlock), time.Hour, client)
+	submissionReceipt, err := utils.WaitForTx(*tx.outerTx, fmt.Sprintf("submission[%v]", tx.triggerBlock), time.Hour, client)
 	if err != nil {
 		tx.txStatus = TxStatus(SystemFailure)
 	}
 	if submissionReceipt.Status == 1 {
 		tx.txStatus = TxStatus(Sequenced)
+		tx.submissionBlock = submissionReceipt.BlockNumber.Int64()
 	} else {
 		tx.txStatus = TxStatus(SystemFailure)
 	}
 	if tx.txStatus == SystemFailure {
+		fmt.Println(tx)
 		// TODO: forfeit nonce
 		return
 	}
-	includedReceipt, err := stress.WaitForTx(*tx.innerTx, fmt.Sprintf("inclusion[%v]", tx.triggerBlock), time.Hour, client)
+	includedReceipt, err := utils.WaitForTx(*tx.innerTx, fmt.Sprintf("inclusion[%v]", tx.triggerBlock), time.Hour, client)
 	if err != nil {
 		tx.txStatus = TxStatus(SystemFailure)
 	}
 	if includedReceipt.Status == 1 {
 		tx.txStatus = TxStatus(Included)
+		tx.inclusionBlock = includedReceipt.BlockNumber.Int64()
 		fmt.Printf("INCLUDED!!! %v\n", tx.innerTx.Hash())
 	} else {
 		tx.txStatus = TxStatus(NotIncluded)
@@ -477,7 +503,7 @@ func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 	fmt.Println(tx)
 }
 
-func forfeitNonce(account stress.Account, client *ethclient.Client) error {
+func forfeitNonce(account utils.Account, client *ethclient.Client) error {
 	nonce := account.Nonce
 	chainId, err := client.ChainID(context.Background())
 	if err != nil {
@@ -485,7 +511,7 @@ func forfeitNonce(account stress.Account, client *ethclient.Client) error {
 	}
 	gasLimit := uint64(21000)
 	var data []byte
-	gas, err := stress.GasCalculationFromClient(context.Background(), client, stress.HighPriorityGasPriceFn)
+	gas, err := utils.GasCalculationFromClient(context.Background(), client, utils.HighPriorityGasPriceFn)
 	if err != nil {
 		return err
 	}

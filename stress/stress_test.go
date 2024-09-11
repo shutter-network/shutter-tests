@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	sequencerBindings "github.com/shutter-network/contracts/v2/bindings/sequencer"
+	"github.com/shutter-network/nethermind-tests/utils"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
 	"gotest.tools/assert"
 )
@@ -31,9 +32,9 @@ func skipCI(t *testing.T) {
 
 const KeyperSetChangeLookAhead = 2
 
-func createSetup(fundNewAccount bool) (StressSetup, error) {
-	setup := new(StressSetup)
-	RpcUrl, err := ReadStringFromEnv("STRESS_TEST_RPC_URL")
+func createSetup(fundNewAccount bool) (utils.StressSetup, error) {
+	setup := new(utils.StressSetup)
+	RpcUrl, err := utils.ReadStringFromEnv("STRESS_TEST_RPC_URL")
 	if err != nil {
 		return *setup, err
 	}
@@ -53,7 +54,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	signerForChain := types.LatestSignerForChainID(chainID)
 	setup.SignerForChain = signerForChain
 
-	submitKeyHex, err := ReadStringFromEnv("STRESS_TEST_PK")
+	submitKeyHex, err := utils.ReadStringFromEnv("STRESS_TEST_PK")
 	if err != nil {
 		return *setup, err
 	}
@@ -62,7 +63,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		return *setup, err
 	}
 
-	submitAccount, err := AccountFromPrivateKey(submitPrivateKey, signerForChain)
+	submitAccount, err := utils.AccountFromPrivateKey(submitPrivateKey, signerForChain)
 	if err != nil {
 		return *setup, err
 	}
@@ -74,13 +75,13 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	if err != nil {
 		return *setup, err
 	}
-	transactAccount, err := AccountFromPrivateKey(transactPrivateKey, signerForChain)
+	transactAccount, err := utils.AccountFromPrivateKey(transactPrivateKey, signerForChain)
 	if err != nil {
 		return *setup, err
 	}
 
 	setup.TransactAccount = &transactAccount
-	err = StoreAccount(transactAccount)
+	err = utils.StoreAccount(transactAccount)
 	if err != nil {
 		return *setup, err
 	}
@@ -91,22 +92,22 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 		}
 		log.Println("Funding complete")
 	}
-	KeyperSetManagerContractAddress, err := ReadStringFromEnv("STRESS_TEST_KEYPER_SET_MANAGER_CONTRACT_ADDRESS")
+	KeyperSetManagerContractAddress, err := utils.ReadStringFromEnv("STRESS_TEST_KEYPER_SET_MANAGER_CONTRACT_ADDRESS")
 	if err != nil {
 		return *setup, err
 	}
 
-	KeyBroadcastContractAddress, err := ReadStringFromEnv("STRESS_TEST_KEY_BROADCAST_CONTRACT_ADDRESS")
+	KeyBroadcastContractAddress, err := utils.ReadStringFromEnv("STRESS_TEST_KEY_BROADCAST_CONTRACT_ADDRESS")
 	if err != nil {
 		return *setup, err
 	}
 
-	SequencerContractAddress, err := ReadStringFromEnv("STRESS_TEST_SEQUENCER_CONTRACT_ADDRESS")
+	SequencerContractAddress, err := utils.ReadStringFromEnv("STRESS_TEST_SEQUENCER_CONTRACT_ADDRESS")
 	if err != nil {
 		return *setup, err
 	}
 
-	contracts, err := SetupContracts(client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress)
+	contracts, err := utils.SetupContracts(client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress)
 	if err != nil {
 		return *setup, err
 	}
@@ -118,7 +119,7 @@ func createSetup(fundNewAccount bool) (StressSetup, error) {
 	return *setup, nil
 }
 
-func fund(setup StressSetup) error {
+func fund(setup utils.StressSetup) error {
 	value := big.NewInt(100000000000000000) // 0.1 ETH in wei
 	gasLimit := uint64(21000)
 	gasPrice, err := setup.Client.SuggestGasPrice(context.Background())
@@ -146,7 +147,7 @@ func fund(setup StressSetup) error {
 }
 
 //lint:ignore U1000 Ignore unused function.
-func increasingGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (GasFeeCap, GasTipCap) {
+func increasingGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (utils.GasFeeCap, utils.GasTipCap) {
 	feeCapAndTipCap := big.NewInt(0).Add(suggestedGasPrice, suggestedGasTipCap)
 
 	gasFloat, _ := suggestedGasPrice.Float64()
@@ -158,7 +159,7 @@ func increasingGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.In
 }
 
 //lint:ignore U1000 Ignore unused function.
-func decreasingGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (GasFeeCap, GasTipCap) {
+func decreasingGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (utils.GasFeeCap, utils.GasTipCap) {
 	feeCapAndTipCap := big.NewInt(0).Add(suggestedGasPrice, suggestedGasTipCap)
 
 	gasFloat, _ := suggestedGasPrice.Float64()
@@ -173,15 +174,15 @@ func defaultGasLimitFn(data []byte, toAddress *common.Address, i int, count int)
 	return uint64(21000)
 }
 
-func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvironment, error) {
+func createStressEnvironment(ctx context.Context, setup utils.StressSetup) (utils.StressEnvironment, error) {
 	eon, eonKey, err := getEonKey(ctx, setup)
 
-	environment := StressEnvironment{
+	environment := utils.StressEnvironment{
 		TransacterOpts: bind.TransactOpts{
 			From:   setup.TransactAccount.Address,
 			Signer: setup.TransactAccount.Sign,
 		},
-		TransactGasPriceFn:   DefaultGasPriceFn,
+		TransactGasPriceFn:   utils.DefaultGasPriceFn,
 		TransactGasLimitFn:   defaultGasLimitFn,
 		InclusionWaitTimeout: time.Duration(time.Minute * 2),
 		InclusionConstraints: func(inclusions []*types.Receipt) error { return nil },
@@ -215,8 +216,8 @@ func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvi
 	return environment, nil
 }
 
-func getEonKey(ctx context.Context, setup StressSetup) (uint64, *shcrypto.EonPublicKey, error) {
-	return GetEonKey(ctx, setup.Client, &setup.KeyperSetManager, &setup.KeyBroadcastContract, KeyperSetChangeLookAhead)
+func getEonKey(ctx context.Context, setup utils.StressSetup) (uint64, *shcrypto.EonPublicKey, error) {
+	return utils.GetEonKey(ctx, setup.Client, &setup.KeyperSetManager, &setup.KeyBroadcastContract, KeyperSetChangeLookAhead)
 }
 
 func createIdentityPrefix() (shcrypto.Block, error) {
@@ -227,7 +228,7 @@ func createIdentityPrefix() (shcrypto.Block, error) {
 	return identityPrefix, nil
 }
 
-func encrypt(ctx context.Context, tx types.Transaction, env *StressEnvironment, submitter common.Address, i int) (*shcrypto.EncryptedMessage, shcrypto.Block, error) {
+func encrypt(ctx context.Context, tx types.Transaction, env *utils.StressEnvironment, submitter common.Address, i int) (*shcrypto.EncryptedMessage, shcrypto.Block, error) {
 
 	sigma, err := shcrypto.RandomSigma(cryptorand.Reader)
 	if err != nil {
@@ -245,13 +246,13 @@ func encrypt(ctx context.Context, tx types.Transaction, env *StressEnvironment, 
 		}
 	}
 	if env.RandomIdentitySuffix {
-		submitter, err = createRandomAddress()
+		submitter, err = utils.CreateRandomAddress()
 		if err != nil {
 			return nil, identityPrefix, err
 		}
 	}
 
-	identity := ComputeIdentity(identityPrefix[:], submitter)
+	identity := utils.ComputeIdentity(identityPrefix[:], submitter)
 
 	buff, err := tx.MarshalBinary()
 
@@ -267,7 +268,7 @@ func encrypt(ctx context.Context, tx types.Transaction, env *StressEnvironment, 
 	return encryptedTx, identityPrefix, nil
 }
 
-func submitEncryptedTx(ctx context.Context, setup StressSetup, env *StressEnvironment, tx types.Transaction, i int) (*types.Transaction, error) {
+func submitEncryptedTx(ctx context.Context, setup utils.StressSetup, env *utils.StressEnvironment, tx types.Transaction, i int) (*types.Transaction, error) {
 
 	opts := env.SubmitterOpts
 	log.Println("submit nonce", opts.Nonce)
@@ -288,7 +289,7 @@ func submitEncryptedTx(ctx context.Context, setup StressSetup, env *StressEnviro
 
 }
 
-func transact(setup *StressSetup, env *StressEnvironment, count int) error {
+func transact(setup *utils.StressSetup, env *utils.StressEnvironment, count int) error {
 
 	value := big.NewInt(1) // in wei
 
@@ -353,7 +354,7 @@ func transact(setup *StressSetup, env *StressEnvironment, count int) error {
 		}
 		submissions = append(submissions, *submitTx)
 		if env.WaitOnEverySubmit {
-			_, err = WaitForTx(*submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
+			_, err = utils.WaitForTx(*submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
 			if err != nil {
 				return err
 			}
@@ -361,14 +362,14 @@ func transact(setup *StressSetup, env *StressEnvironment, count int) error {
 		log.Println("Submit tx hash", submitTx.Hash().Hex(), "Encrypted tx hash", signedTx.Hash().Hex())
 	}
 	for _, submitTx := range submissions {
-		_, err = WaitForTx(submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
+		_, err = utils.WaitForTx(submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
 		if err != nil {
 			return err
 		}
 	}
 	var receipts []*types.Receipt
 	for _, innerTx := range innerTxs {
-		receipt, err := WaitForTx(innerTx, "inclusion", env.InclusionWaitTimeout, setup.Client)
+		receipt, err := utils.WaitForTx(innerTx, "inclusion", env.InclusionWaitTimeout, setup.Client)
 		if err != nil {
 			return err
 		}
@@ -378,7 +379,7 @@ func transact(setup *StressSetup, env *StressEnvironment, count int) error {
 	if err != nil {
 		return err
 	}
-	err = countAndLog(receipts)
+	err = utils.CountAndLog(receipts)
 	return err
 }
 
