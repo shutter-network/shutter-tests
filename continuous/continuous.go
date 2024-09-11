@@ -42,11 +42,12 @@ func (s Status) TxCount() int {
 type ShutterTx struct {
 	innerTx      *types.Transaction
 	outerTx      *types.Transaction
-	sender       stress.Account
+	sender       *stress.Account
 	prefix       shcrypto.Block
 	triggerBlock int64
 	txStatus     TxStatus
 	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 type TxStatus int
@@ -76,8 +77,8 @@ type Configuration struct {
 	chainID       *big.Int
 }
 
-func (cfg Configuration) NextAccount() stress.Account {
-	return cfg.accounts[cfg.status.TxCount()%len(cfg.accounts)]
+func (cfg *Configuration) NextAccount() *stress.Account {
+	return &cfg.accounts[cfg.status.TxCount()%len(cfg.accounts)]
 }
 
 type ShutterBlock struct {
@@ -130,8 +131,10 @@ func fundNewAccount(account stress.Account, amount int64, submitAccount *stress.
 	if err != nil {
 		return err
 	}
-	value := big.NewInt(0).Sub(target, current)
-	if value.Int64() <= 0 {
+	missing := big.NewInt(0).Sub(target, current)
+
+	half := big.NewInt(0).Div(target, big.NewInt(2))
+	if missing.Int64() <= half.Int64() {
 		return nil
 	}
 	gasLimit := uint64(21000)
@@ -144,7 +147,8 @@ func fundNewAccount(account stress.Account, amount int64, submitAccount *stress.
 	if err != nil {
 		return err
 	}
-	tx := types.NewTransaction(nonce.Uint64(), account.Address, value, gasLimit, gasPrice, data)
+	fmt.Printf("Using submitter nonce %v\n", nonce)
+	tx := types.NewTransaction(nonce.Uint64(), account.Address, missing, gasLimit, gasPrice, data)
 	signedTx, err := submitAccount.Sign(submitAccount.Address, tx)
 	if err != nil {
 		return err
@@ -359,12 +363,14 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	fmt.Printf("\nSENDING NEW TX FOR %v", blockNumber)
 	account := cfg.NextAccount()
 	fmt.Printf("\nUsing %v\n", account.Address.Hex())
-	var data []byte
 	gasLimit := uint64(21000)
-	gas, err := stress.GasCalculationFromClient(context.Background(), cfg.client)
+	var data []byte
+	gas, err := stress.GasCalculationFromClient(context.Background(), cfg.client, stress.DefaultGasPriceFn)
 	if err != nil {
 		panic(err)
 	}
+	identityPrefix := PrefixFromBlockNumber(blockNumber)
+	identity := stress.ComputeIdentity(identityPrefix[:], cfg.submitAccount.Address)
 	innerNonceP := account.UseNonce()
 	innerTx := types.NewTx(
 		&types.DynamicFeeTx{
@@ -374,12 +380,12 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 			GasTipCap: gas.Tip,
 			Gas:       gasLimit,
 			To:        &cfg.submitAccount.Address,
-			Value:     big.NewInt(1),
+			Value:     big.NewInt(blockNumber),
 			Data:      data,
 		},
 	)
 
-	signedInnerTx, err := cfg.submitAccount.Sign(cfg.submitAccount.Address, innerTx)
+	signedInnerTx, err := account.Sign(account.Address, innerTx)
 	if err != nil {
 		panic(err)
 	}
@@ -387,9 +393,15 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	if err != nil {
 		panic("could not get random sigma")
 	}
-	identityPrefix := PrefixFromBlockNumber(blockNumber)
-	identity := stress.ComputeIdentity(identityPrefix[:], cfg.submitAccount.Address)
-
+	j, err := signedInnerTx.MarshalJSON()
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal json %v", err))
+	}
+	log.Println("tx to be encrypted", string(j[:]))
+	// err = cfg.client.SendTransaction(context.Background(), signedInnerTx)
+	// if err != nil {
+	// 	panic(err)
+	// }
 	buff, err := signedInnerTx.MarshalBinary()
 	if err != nil {
 		panic(err)
@@ -404,7 +416,13 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 
 	opts.Value = big.NewInt(0).Sub(signedInnerTx.Cost(), signedInnerTx.Value())
 
-	fmt.Println(opts)
+	submitGas, err := stress.GasCalculationFromClient(context.Background(), cfg.client, stress.HighPriorityGasPriceFn)
+	if err != nil {
+		panic(err)
+	}
+	opts.GasFeeCap = submitGas.Fee
+	opts.GasTipCap = submitGas.Tip
+	fmt.Printf("submit nonce: %v\n", opts.Nonce)
 	outerTx, err := cfg.contracts.Sequencer.SubmitEncryptedTransaction(
 		opts, eon, identityPrefix, encrypted.Marshal(), new(big.Int).SetUint64(signedInnerTx.Gas()),
 	)
@@ -412,6 +430,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 		panic(err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	tx := ShutterTx{
 		outerTx:      outerTx,
 		innerTx:      signedInnerTx,
@@ -419,13 +438,16 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 		prefix:       identityPrefix,
 		triggerBlock: blockNumber,
 		txStatus:     TxStatus(Signed),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 	cfg.status.txInFlight = append(cfg.status.txInFlight, tx)
+	fmt.Println(signedInnerTx.Hash())
 	go WatchTx(&tx, cfg.client)
 }
 
 func WatchTx(tx *ShutterTx, client *ethclient.Client) {
-	submissionReceipt, err := stress.WaitForTx(*tx.outerTx, "submission", time.Hour, client)
+	submissionReceipt, err := stress.WaitForTx(*tx.outerTx, fmt.Sprintf("submission[%v]", tx.triggerBlock), time.Hour, client)
 	if err != nil {
 		tx.txStatus = TxStatus(SystemFailure)
 	}
@@ -438,12 +460,13 @@ func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 		// TODO: forfeit nonce
 		return
 	}
-	includedReceipt, err := stress.WaitForTx(*tx.innerTx, "inclusion", time.Hour, client)
+	includedReceipt, err := stress.WaitForTx(*tx.innerTx, fmt.Sprintf("inclusion[%v]", tx.triggerBlock), time.Hour, client)
 	if err != nil {
 		tx.txStatus = TxStatus(SystemFailure)
 	}
 	if includedReceipt.Status == 1 {
 		tx.txStatus = TxStatus(Included)
+		fmt.Printf("INCLUDED!!! %v\n", tx.innerTx.Hash())
 	} else {
 		tx.txStatus = TxStatus(NotIncluded)
 	}
@@ -462,7 +485,7 @@ func forfeitNonce(account stress.Account, client *ethclient.Client) error {
 	}
 	gasLimit := uint64(21000)
 	var data []byte
-	gas, err := stress.GasCalculationFromClient(context.Background(), client)
+	gas, err := stress.GasCalculationFromClient(context.Background(), client, stress.HighPriorityGasPriceFn)
 	if err != nil {
 		return err
 	}

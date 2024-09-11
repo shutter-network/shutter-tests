@@ -94,7 +94,7 @@ type GasLimitFn func(data []byte, toAddress *common.Address, i int, count int) u
 type GasPriceFn func(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, i int, count int) (GasFeeCap, GasTipCap)
 
 // applies the DefaultGasPriceFn to the client suggested gas
-func GasCalculationFromClient(ctx context.Context, client *ethclient.Client) (GasCalculation, error) {
+func GasCalculationFromClient(ctx context.Context, client *ethclient.Client, gasPriceFn GasPriceFn) (GasCalculation, error) {
 	result := GasCalculation{}
 	gasTipCap, err := client.SuggestGasTipCap(ctx)
 	if err != nil {
@@ -104,7 +104,7 @@ func GasCalculationFromClient(ctx context.Context, client *ethclient.Client) (Ga
 	if err != nil {
 		return result, err
 	}
-	gasFeeCap, calculatedGasTipCap := DefaultGasPriceFn(gasTipCap, suggestedGasPrice, 0, 1)
+	gasFeeCap, calculatedGasTipCap := gasPriceFn(gasTipCap, suggestedGasPrice, 0, 1)
 
 	result.Fee = gasFeeCap
 	result.Tip = calculatedGasTipCap
@@ -121,6 +121,16 @@ func DefaultGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, 
 	return gasFeeCap, suggestedGasTipCap
 }
 
+func HighPriorityGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, _ int, _ int) (GasFeeCap, GasTipCap) {
+	feeCapAndTipCap := big.NewInt(0).Add(suggestedGasPrice, suggestedGasTipCap)
+
+	gasFloat, _ := suggestedGasPrice.Float64()
+	x := int64(gasFloat * 3) // fixed delta
+	delta := big.NewInt(x)
+	gasFeeCap := big.NewInt(0).Add(feeCapAndTipCap, delta)
+	return gasFeeCap, suggestedGasTipCap
+}
+
 type ConstraintFn func(inclusions []*types.Receipt) error
 
 func WaitForTx(tx types.Transaction, description string, timeout time.Duration, client *ethclient.Client) (*types.Receipt, error) {
@@ -131,7 +141,7 @@ func WaitForTx(tx types.Transaction, description string, timeout time.Duration, 
 	if err != nil {
 		return nil, fmt.Errorf("error on WaitMined %s", err)
 	}
-	log.Println("status", receipt.Status, "block", receipt.BlockNumber)
+	log.Println(description, "status", receipt.Status, "block", receipt.BlockNumber)
 	if receipt.Status != 1 {
 		return nil, fmt.Errorf("included tx failed")
 	}
