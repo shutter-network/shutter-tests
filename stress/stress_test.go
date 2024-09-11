@@ -354,7 +354,7 @@ func transact(setup *utils.StressSetup, env *utils.StressEnvironment, count int)
 		}
 		submissions = append(submissions, *submitTx)
 		if env.WaitOnEverySubmit {
-			_, err = utils.WaitForTx(*submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
+			_, err = utils.WaitForTxTimeout(*submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
 			if err != nil {
 				return err
 			}
@@ -362,14 +362,14 @@ func transact(setup *utils.StressSetup, env *utils.StressEnvironment, count int)
 		log.Println("Submit tx hash", submitTx.Hash().Hex(), "Encrypted tx hash", signedTx.Hash().Hex())
 	}
 	for _, submitTx := range submissions {
-		_, err = utils.WaitForTx(submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
+		_, err = utils.WaitForTxTimeout(submitTx, "submission", env.SubmissionWaitTimeout, setup.Client)
 		if err != nil {
 			return err
 		}
 	}
 	var receipts []*types.Receipt
 	for _, innerTx := range innerTxs {
-		receipt, err := utils.WaitForTx(innerTx, "inclusion", env.InclusionWaitTimeout, setup.Client)
+		receipt, err := utils.WaitForTxTimeout(innerTx, "inclusion", env.InclusionWaitTimeout, setup.Client)
 		if err != nil {
 			return err
 		}
@@ -617,17 +617,17 @@ func TestInception(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	submitReceipt, err := WaitForTx(*submitTx, "outer tx", env.SubmissionWaitTimeout, setup.Client)
+	submitReceipt, err := utils.WaitForTxTimeout(*submitTx, "outer tx", env.SubmissionWaitTimeout, setup.Client)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println(hex.EncodeToString(middleIdentityPrefix[:]))
-	middleReceipt, err := WaitForTx(*signedMiddleTx, "middle tx", env.InclusionWaitTimeout, setup.Client)
+	middleReceipt, err := utils.WaitForTxTimeout(*signedMiddleTx, "middle tx", env.InclusionWaitTimeout, setup.Client)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Println(hex.EncodeToString(innerIdentityPrefix[:]))
-	innerReceipt, err := WaitForTx(*signedInnerTx, "inner tx", env.InclusionWaitTimeout, setup.Client)
+	innerReceipt, err := utils.WaitForTxTimeout(*signedInnerTx, "inner tx", env.InclusionWaitTimeout, setup.Client)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -662,7 +662,7 @@ func TestEmptyAccounts(t *testing.T) {
 		log.Fatal("Could not open pk.hex")
 	}
 	defer fd.Close()
-	pks, err := ReadPks(fd)
+	pks, err := utils.ReadPks(fd)
 	if err != nil {
 		log.Fatal("error when reading private keys", err)
 	}
@@ -671,7 +671,7 @@ func TestEmptyAccounts(t *testing.T) {
 		log.Fatal("could not query block number", err)
 	}
 	for i := range pks {
-		account, err := AccountFromPrivateKey(pks[i], setup.SignerForChain)
+		account, err := utils.AccountFromPrivateKey(pks[i], setup.SignerForChain)
 		if err != nil {
 			log.Fatal("could not create account from privatekey", err, pks[i])
 		}
@@ -680,7 +680,7 @@ func TestEmptyAccounts(t *testing.T) {
 			log.Println(account.Address.Hex(), balance)
 		}
 		if balance.Uint64() > 0 {
-			drain(context.Background(), account, balance.Uint64(), setup.SubmitAccount.Address, setup.Client)
+			utils.Drain(context.Background(), account, balance.Uint64(), setup.SubmitAccount.Address, setup.Client)
 		}
 	}
 }
@@ -692,7 +692,7 @@ func TestFixNonce(t *testing.T) {
 	if err != nil {
 		log.Fatal("could not create setup", err)
 	}
-	err = fixNonce(setup.Client, *setup.SubmitAccount)
+	err = utils.FixNonce(setup.Client, *setup.SubmitAccount)
 	if err != nil {
 		log.Fatal(err)
 	}

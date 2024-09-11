@@ -143,7 +143,20 @@ func HighPriorityGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.
 
 type ConstraintFn func(inclusions []*types.Receipt) error
 
-func WaitForTx(tx types.Transaction, description string, timeout time.Duration, client *ethclient.Client) (*types.Receipt, error) {
+func WaitForTxCtx(ctx context.Context, tx types.Transaction, description string, client *ethclient.Client) (*types.Receipt, error) {
+	log.Println("waiting for "+description+" ", tx.Hash().Hex())
+	receipt, err := bind.WaitMined(ctx, client, &tx)
+	if err != nil {
+		return nil, fmt.Errorf("error on WaitMined %s", err)
+	}
+	log.Println(description, "status", receipt.Status, "block", receipt.BlockNumber)
+	if receipt.Status != 1 {
+		return nil, fmt.Errorf("included tx failed")
+	}
+	return receipt, nil
+}
+
+func WaitForTxTimeout(tx types.Transaction, description string, timeout time.Duration, client *ethclient.Client) (*types.Receipt, error) {
 	log.Println("waiting for "+description+" ", tx.Hash().Hex())
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

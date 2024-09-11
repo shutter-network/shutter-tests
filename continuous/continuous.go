@@ -31,8 +31,8 @@ type Connection struct {
 
 type Status struct {
 	lastShutterTS pgtype.Date
-	txInFlight    []ShutterTx
-	txDone        []ShutterTx
+	txInFlight    []*ShutterTx
+	txDone        []*ShutterTx
 }
 
 func (s Status) TxCount() int {
@@ -47,6 +47,7 @@ type ShutterTx struct {
 	triggerBlock    int64
 	submissionBlock int64
 	inclusionBlock  int64
+	cancelBlock     int64
 	txStatus        TxStatus
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -65,13 +66,14 @@ func (tx *ShutterTx) String() string {
 	} else {
 		outerTxHash = tx.outerTx.Hash().Hex()
 	}
-	return fmt.Sprintf("ShutterTx[%v]\ntrig:\t%v\nsubm:\t%v: %v\nincl:\t%v: %v",
+	return fmt.Sprintf("ShutterTx[%v]\ntrigger:\t%v\nsubmit :\t%v: %v\ninclude:\t%v: %v\ncancel :\t%v",
 		tx.txStatus,
 		tx.triggerBlock,
 		tx.submissionBlock,
 		outerTxHash,
 		tx.inclusionBlock,
 		innerTxHash,
+		tx.cancelBlock,
 	)
 }
 
@@ -81,12 +83,13 @@ const (
 	Signed        TxStatus = iota + 1 // user transaction was encrypted and tx to the sequencer contract was signed and sent
 	Sequenced                         // tx to sequencer contract was mined
 	Included                          // next shutterized block was found and the tx was included
+	NotSequenced                      // next shutterized block was found, but this tx was not sequenced
 	NotIncluded                       // next shutterized block was found, but this tx was not part of it
 	SystemFailure                     // we could not assess the status of this tx, e.g. because the client connection failed
 )
 
 func (ts TxStatus) String() string {
-	return [...]string{"Signed", "Sequenced", "Included", "NotIncluded", "SystemFailure"}[ts-1]
+	return [...]string{"Signed", "Sequenced", "Included", "NotSequenced", "NotIncluded", "SystemFailure"}[ts-1]
 }
 
 func (ts TxStatus) EnumIndex() int {
@@ -123,17 +126,17 @@ func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Si
 	var result []utils.Account
 	fd, err := os.Open("pk.hex")
 	if err != nil {
-		fmt.Println("could not open pk.hex")
+		log.Println("could not open pk.hex")
 	}
 	defer fd.Close()
 	pks, err := utils.ReadPks(fd)
 	if err != nil {
-		fmt.Printf("error when reading private keys %v\n", err)
+		log.Printf("error when reading private keys %v\n", err)
 	}
 	for _, pk := range pks {
 		acc, err := utils.AccountFromPrivateKey(pk, signerForChain)
 		if err != nil {
-			fmt.Printf("could not retrieve account %v\n", err)
+			log.Printf("could not retrieve account %v\n", err)
 		}
 		result = append(result, acc)
 		if len(result) == num {
@@ -143,7 +146,7 @@ func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Si
 	for i := range result {
 		accNonce, err := client.NonceAt(context.Background(), result[i].Address, nil)
 		if err != nil {
-			fmt.Printf("failed to get nonce for %v: %v\n", result[i].Address, err)
+			log.Printf("failed to get nonce for %v: %v\n", result[i].Address, err)
 		}
 		log.Printf("setting account nonce for %v to %v\n", result[i].Address.Hex(), accNonce)
 		result[i].Nonce = big.NewInt(int64(accNonce))
@@ -173,7 +176,7 @@ func fundNewAccount(account utils.Account, amount int64, submitAccount *utils.Ac
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Using submitter nonce %v\n", nonce)
+	log.Printf("Using submitter nonce %v\n", nonce)
 	tx := types.NewTransaction(nonce.Uint64(), account.Address, missing, gasLimit, gasPrice, data)
 	signedTx, err := submitAccount.Sign(submitAccount.Address, tx)
 	if err != nil {
@@ -221,7 +224,7 @@ func createConfiguration() (Configuration, error) {
 	if err != nil {
 		return cfg, err
 	}
-	fmt.Printf("submit account is %v\n", submitAccount.Address.Hex())
+	log.Printf("submit account is %v\n", submitAccount.Address.Hex())
 	submitNonce, err := client.NonceAt(context.Background(), submitAccount.Address, nil)
 	if err != nil {
 		return cfg, err
@@ -327,7 +330,7 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 		}
 	}
 	if rows.Err() != nil {
-		fmt.Println("errors when finding shutterized blocks: ", rows.Err())
+		log.Println("errors when finding shutterized blocks: ", rows.Err())
 	}
 	for {
 		time.Sleep(waitBetweenQueries)
@@ -364,11 +367,11 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	for rows.Next() {
 		rows.Scan(&block, &ts, &count)
 		if !ts.Time.IsZero() {
-			fmt.Printf("\nFOUND NEW SHUTTER BLOCK %v: %v [%v txs]", block, ts.Time, count-1)
+			log.Printf("\nFOUND NEW SHUTTER BLOCK %v: %v [%v txs]", block, ts.Time, count-1)
 		}
 	}
 	if rows.Err() != nil {
-		fmt.Println("errors when finding shutterized blocks: ", rows.Err())
+		log.Println("errors when finding shutterized blocks: ", rows.Err())
 	}
 	res := ShutterBlock{}
 	res.Number = block
@@ -377,15 +380,9 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 }
 
 func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Configuration) {
-	// [x] fund accounts in cfg
-	// [x] get available account from cfg
-	// [x] create prefix from trigger data
-	// [x] encrypt tx
-	// [x] send to sequencer
-	// [x] add to txInFlight
-	fmt.Printf("\nSENDING NEW TX FOR %v", blockNumber)
+	log.Printf("\nSENDING NEW TX FOR %v", blockNumber)
 	account := cfg.NextAccount()
-	fmt.Printf("\nUsing %v\n", account.Address.Hex())
+	log.Printf("\nUsing %v\n", account.Address.Hex())
 	gasLimit := uint64(21000)
 	var data []byte
 	gas, err := utils.GasCalculationFromClient(context.Background(), cfg.client, utils.DefaultGasPriceFn)
@@ -416,15 +413,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	if err != nil {
 		panic("could not get random sigma")
 	}
-	j, err := signedInnerTx.MarshalJSON()
-	if err != nil {
-		panic(fmt.Errorf("failed to marshal json %v", err))
-	}
-	log.Println("tx to be encrypted", string(j[:]))
-	// err = cfg.client.SendTransaction(context.Background(), signedInnerTx)
-	// if err != nil {
-	// 	panic(err)
-	// }
+
 	buff, err := signedInnerTx.MarshalBinary()
 	if err != nil {
 		panic(err)
@@ -445,7 +434,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	}
 	opts.GasFeeCap = submitGas.Fee
 	opts.GasTipCap = submitGas.Tip
-	fmt.Printf("submit nonce: %v\n", opts.Nonce)
+	log.Printf("submit nonce: %v\n", opts.Nonce)
 	outerTx, err := cfg.contracts.Sequencer.SubmitEncryptedTransaction(
 		opts, eon, identityPrefix, encrypted.Marshal(), new(big.Int).SetUint64(signedInnerTx.Gas()),
 	)
@@ -453,7 +442,8 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 		panic(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+
 	tx := ShutterTx{
 		outerTx:      outerTx,
 		innerTx:      signedInnerTx,
@@ -464,13 +454,30 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 		ctx:          ctx,
 		cancel:       cancel,
 	}
-	cfg.status.txInFlight = append(cfg.status.txInFlight, tx)
-	fmt.Println(signedInnerTx.Hash())
+	cfg.status.txInFlight = append(cfg.status.txInFlight, &tx)
+	log.Println(signedInnerTx.Hash())
 	go WatchTx(&tx, cfg.client)
 }
 
 func WatchTx(tx *ShutterTx, client *ethclient.Client) {
-	submissionReceipt, err := utils.WaitForTx(*tx.outerTx, fmt.Sprintf("submission[%v]", tx.triggerBlock), time.Hour, client)
+	defer tx.cancel()
+	submissionReceipt, err := utils.WaitForTxCtx(tx.ctx, *tx.outerTx, fmt.Sprintf("submission[%v]", tx.triggerBlock), client)
+	select {
+	case <-tx.ctx.Done():
+		switch tx.ctx.Err() {
+		case context.Canceled:
+			tx.txStatus = TxStatus(NotSequenced)
+			log.Println(tx)
+			return
+		case context.DeadlineExceeded:
+			tx.txStatus = TxStatus(SystemFailure)
+			log.Println(tx)
+			return
+		default:
+			fmt.Println("something else")
+		}
+	default:
+	}
 	if err != nil {
 		tx.txStatus = TxStatus(SystemFailure)
 	}
@@ -480,27 +487,46 @@ func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 	} else {
 		tx.txStatus = TxStatus(SystemFailure)
 	}
-	if tx.txStatus == SystemFailure {
-		fmt.Println(tx)
-		// TODO: forfeit nonce
+	if tx.txStatus != Sequenced {
+		log.Println(tx)
+		err = forfeitNonce(*tx.sender, client)
+		if err != nil {
+			log.Println("could not reset nonce", err)
+		}
 		return
 	}
-	includedReceipt, err := utils.WaitForTx(*tx.innerTx, fmt.Sprintf("inclusion[%v]", tx.triggerBlock), time.Hour, client)
+	includedReceipt, err := utils.WaitForTxCtx(tx.ctx, *tx.innerTx, fmt.Sprintf("inclusion[%v]", tx.triggerBlock), client)
+	select {
+	case <-tx.ctx.Done():
+		err = forfeitNonce(*tx.sender, client)
+		if err != nil {
+			log.Println("could not reset nonce", err)
+		}
+		switch tx.ctx.Err() {
+		case context.Canceled:
+			tx.txStatus = TxStatus(NotIncluded)
+			log.Println(tx)
+			return
+		case context.DeadlineExceeded:
+			tx.txStatus = TxStatus(SystemFailure)
+			log.Println(tx)
+			return
+		default:
+		}
+	default:
+	}
 	if err != nil {
 		tx.txStatus = TxStatus(SystemFailure)
 	}
 	if includedReceipt.Status == 1 {
 		tx.txStatus = TxStatus(Included)
 		tx.inclusionBlock = includedReceipt.BlockNumber.Int64()
-		fmt.Printf("INCLUDED!!! %v\n", tx.innerTx.Hash())
+		log.Printf("INCLUDED!!! %v\n", tx.innerTx.Hash())
 	} else {
+		// FIXME: failure status would still mean included...
 		tx.txStatus = TxStatus(NotIncluded)
 	}
-	// [ ] wait for submit
-	// [ ] wait for failure signal
-	// [ ] on failure: forfeit account nonce
-	// [ ] move to txDone
-	fmt.Println(tx)
+	log.Println(tx)
 }
 
 func forfeitNonce(account utils.Account, client *ethclient.Client) error {
@@ -533,7 +559,57 @@ func forfeitNonce(account utils.Account, client *ethclient.Client) error {
 		return err
 	}
 	err = client.SendTransaction(context.Background(), signed)
+	if err != nil {
+		return err
+	}
+	receipt, err := bind.WaitMined(context.Background(), client, signed)
+	if err != nil {
+		return err
+	}
+	if receipt.Status != 1 {
+		return fmt.Errorf("forfeit tx not accepted")
+	}
 	return err
+}
+
+func CheckTxInFlight(blockNumber int64, cfg *Configuration) {
+	var newInflight []*ShutterTx
+	for _, tx := range cfg.status.txInFlight {
+		done := false
+		switch s := tx.txStatus; s {
+		case Signed:
+			if tx.triggerBlock < blockNumber-2 {
+				tx.cancel()
+				tx.cancelBlock = blockNumber
+				done = true
+			}
+		case Sequenced:
+			if tx.submissionBlock < blockNumber-1 {
+				tx.cancel()
+				tx.cancelBlock = blockNumber
+				done = true
+			}
+		default:
+			done = true
+		}
+		if done {
+			cfg.status.txDone = append(cfg.status.txDone, tx)
+		} else {
+			newInflight = append(newInflight, tx)
+		}
+	}
+	cfg.status.txInFlight = newInflight
+}
+
+func PrintAllTx(cfg *Configuration) {
+	log.Println("INFLIGHT")
+	for _, tx := range cfg.status.txInFlight {
+		log.Println(tx)
+	}
+	log.Println("DONE")
+	for _, tx := range cfg.status.txDone {
+		log.Println(tx)
+	}
 }
 
 func Setup() (Configuration, error) {

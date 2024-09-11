@@ -64,6 +64,10 @@ func runContinous() {
 	blocks := make(chan continuous.ShutterBlock)
 	go continuous.QueryAllShutterBlocks(blocks)
 	for block := range blocks {
+		continuous.CheckTxInFlight(block.Number, &cfg)
 		continuous.SendShutterizedTX(block.Number, block.Ts, &cfg)
+		if block.Number%10 == 0 {
+			continuous.PrintAllTx(&cfg)
+		}
 	}
 }
