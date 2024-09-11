@@ -1,7 +1,6 @@
 package stress
 
 import (
-	"bytes"
 	"context"
 	cryptorand "crypto/rand"
 	"encoding/hex"
@@ -254,8 +253,7 @@ func encrypt(ctx context.Context, tx types.Transaction, env *StressEnvironment, 
 
 	identity := ComputeIdentity(identityPrefix[:], submitter)
 
-	var buff bytes.Buffer
-	err = tx.EncodeRLP(&buff)
+	buff, err := tx.MarshalBinary()
 
 	if err != nil {
 		return nil, identityPrefix, fmt.Errorf("failed encode RLP %v", err)
@@ -265,7 +263,7 @@ func encrypt(ctx context.Context, tx types.Transaction, env *StressEnvironment, 
 		return nil, identityPrefix, fmt.Errorf("failed to marshal json %v", err)
 	}
 	log.Println("tx to be encrypted", string(j[:]))
-	encryptedTx := shcrypto.Encrypt(buff.Bytes(), (*shcrypto.EonPublicKey)(env.EonPublicKey), identity, sigma)
+	encryptedTx := shcrypto.Encrypt(buff, (*shcrypto.EonPublicKey)(env.EonPublicKey), identity, sigma)
 	return encryptedTx, identityPrefix, nil
 }
 

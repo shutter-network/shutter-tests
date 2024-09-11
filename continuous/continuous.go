@@ -1,7 +1,6 @@
 package continuous
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -391,8 +390,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	identityPrefix := PrefixFromBlockNumber(blockNumber)
 	identity := stress.ComputeIdentity(identityPrefix[:], cfg.submitAccount.Address)
 
-	var buff bytes.Buffer
-	err = signedInnerTx.EncodeRLP(&buff)
+	buff, err := signedInnerTx.MarshalBinary()
 	if err != nil {
 		panic(err)
 	}
@@ -401,7 +399,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	if err != nil {
 		panic(err)
 	}
-	encrypted := shcrypto.Encrypt(buff.Bytes(), (*shcrypto.EonPublicKey)(eonKey), identity, sigma)
+	encrypted := shcrypto.Encrypt(buff, (*shcrypto.EonPublicKey)(eonKey), identity, sigma)
 	opts := cfg.submitAccount.Opts()
 
 	opts.Value = big.NewInt(0).Sub(signedInnerTx.Cost(), signedInnerTx.Value())
