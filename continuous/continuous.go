@@ -55,24 +55,32 @@ type ShutterTx struct {
 
 func (tx *ShutterTx) String() string {
 	var outerTxHash string
+	var outerTxNonce string
 	var innerTxHash string
+	var innerTxNonce string
 	if tx.innerTx == nil {
 		innerTxHash = "nil"
+		innerTxNonce = "nil"
 	} else {
 		innerTxHash = tx.innerTx.Hash().Hex()
+		innerTxNonce = fmt.Sprint(tx.innerTx.Nonce())
 	}
 	if tx.outerTx == nil {
 		outerTxHash = "nil"
+		outerTxNonce = "nil"
 	} else {
 		outerTxHash = tx.outerTx.Hash().Hex()
+		outerTxNonce = fmt.Sprint(tx.outerTx.Nonce())
 	}
-	return fmt.Sprintf("ShutterTx[%v]\ntrigger:\t%v\nsubmit :\t%v: %v\ninclude:\t%v: %v\ncancel :\t%v",
+	return fmt.Sprintf("ShutterTx[%v]\ntrigger:\t%v\nsubmit :\t%v:\t%v n:%v\ninclude:\t%v:\t%v n:%v\ncancel :\t%v",
 		tx.txStatus,
 		tx.triggerBlock,
 		tx.submissionBlock,
 		outerTxHash,
+		outerTxNonce,
 		tx.inclusionBlock,
 		innerTxHash,
+		innerTxNonce,
 		tx.cancelBlock,
 	)
 }
