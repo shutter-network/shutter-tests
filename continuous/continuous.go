@@ -72,8 +72,9 @@ func (tx *ShutterTx) String() string {
 		outerTxHash = tx.outerTx.Hash().Hex()
 		outerTxNonce = fmt.Sprint(tx.outerTx.Nonce())
 	}
-	return fmt.Sprintf("ShutterTx[%v]\ntrigger:\t%v\nsubmit :\t%v:\t%v n:%v\ninclude:\t%v:\t%v n:%v\ncancel :\t%v",
+	return fmt.Sprintf("ShutterTx[%v]\t%v\n  trigger:\t%8d\n  submit :\t%8d\t%v n:%v\n  include:\t%8d\t%v n:%v\n  cancel :\t%8d",
 		tx.txStatus,
+		tx.sender.Address.Hex(),
 		tx.triggerBlock,
 		tx.submissionBlock,
 		outerTxHash,
@@ -312,6 +313,7 @@ func NewConnection() Connection {
 	return connection
 }
 
+// FIXME: maybe https://github.com/shutter-network/rolling-shutter/blob/fe4ea5fe73a3416b4df9c710d27f764505f89a1f/rolling-shutter/keyperimpl/gnosis/newslot.go#L129 is a better way to do this!
 func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 	waitBetweenQueries := 1 * time.Second
 	status := Status{lastShutterTS: pgtype.Date{}}
@@ -375,7 +377,7 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	for rows.Next() {
 		rows.Scan(&block, &ts, &count)
 		if !ts.Time.IsZero() {
-			log.Printf("\nFOUND NEW SHUTTER BLOCK %v: %v [%v txs]", block, ts.Time, count-1)
+			log.Printf("FOUND NEW SHUTTER BLOCK %v: %v [%v txs]", block, ts.Time, count-1)
 		}
 	}
 	if rows.Err() != nil {
@@ -388,9 +390,8 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 }
 
 func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Configuration) {
-	log.Printf("\nSENDING NEW TX FOR %v", blockNumber)
 	account := cfg.NextAccount()
-	log.Printf("\nUsing %v\n", account.Address.Hex())
+	log.Printf("SENDING NEW TX FOR %v from %v", blockNumber, account.Address.Hex())
 	gasLimit := uint64(21000)
 	var data []byte
 	gas, err := utils.GasCalculationFromClient(context.Background(), cfg.client, utils.DefaultGasPriceFn)
@@ -525,6 +526,7 @@ func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 	}
 	if err != nil {
 		tx.txStatus = TxStatus(SystemFailure)
+		log.Println(err)
 	}
 	if includedReceipt != nil {
 		tx.txStatus = TxStatus(Included)
@@ -606,13 +608,13 @@ func CheckTxInFlight(blockNumber int64, cfg *Configuration) {
 }
 
 func PrintAllTx(cfg *Configuration) {
-	log.Println("INFLIGHT")
+	fmt.Println("INFLIGHT")
 	for _, tx := range cfg.status.txInFlight {
-		log.Println(tx)
+		fmt.Println(tx)
 	}
-	log.Println("DONE")
+	fmt.Println("DONE")
 	for _, tx := range cfg.status.txDone {
-		log.Println(tx)
+		fmt.Println(tx)
 	}
 }
 
