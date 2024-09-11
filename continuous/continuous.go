@@ -119,7 +119,7 @@ func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Si
 		if err != nil {
 			fmt.Printf("failed to get nonce for %v: %v\n", account.Address, err)
 		}
-		account.Nonce = *big.NewInt(int64(accNonce))
+		account.Nonce = big.NewInt(int64(accNonce))
 	}
 	return result
 }
@@ -196,7 +196,7 @@ func createConfiguration() (Configuration, error) {
 	if err != nil {
 		return cfg, err
 	}
-	submitAccount.Nonce = *big.NewInt(int64(submitNonce))
+	submitAccount.Nonce = big.NewInt(int64(submitNonce))
 	cfg.submitAccount = submitAccount
 	accounts := retrieveAccounts(NumFundedAccounts, client, signerForChain)
 	createdAccounts, err := createAccounts(NumFundedAccounts-len(accounts), signerForChain)

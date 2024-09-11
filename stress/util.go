@@ -31,23 +31,24 @@ type Account struct {
 	Address    common.Address
 	privateKey *ecdsa.PrivateKey
 	Sign       bind.SignerFn
-	Nonce      big.Int
+	Nonce      *big.Int
 }
 
 func (acc *Account) Opts() *bind.TransactOpts {
 	opts := bind.TransactOpts{}
 	nonce := acc.UseNonce()
-	opts.Nonce = &nonce
+	opts.Nonce = nonce
 	opts.From = acc.Address
 	opts.Signer = acc.Sign
 	return &opts
 }
 
 // Returns the currently stored account nonce and increases the stored value
-func (acc *Account) UseNonce() big.Int {
+func (acc *Account) UseNonce() *big.Int {
 	one := big.NewInt(1)
 	result := acc.Nonce
-	acc.Nonce.Add(&result, one)
+	acc.Nonce = big.NewInt(0).Add(result, one)
+	log.Println("UseNonce called for", acc.Address.Hex(), result, acc.Nonce)
 	return result
 }
 
@@ -166,7 +167,7 @@ func AccountFromPrivateKey(privateKey *ecdsa.PrivateKey, signerForChain types.Si
 		}
 		return tx.WithSignature(signerForChain, signature)
 	}
-	account.Nonce = *big.NewInt(0)
+	account.Nonce = big.NewInt(0)
 	return account, nil
 }
 

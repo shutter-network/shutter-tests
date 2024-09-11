@@ -203,13 +203,13 @@ func createStressEnvironment(ctx context.Context, setup StressSetup) (StressEnvi
 	if err != nil {
 		return environment, fmt.Errorf("could not query starting nonce %v", err)
 	}
-	setup.SubmitAccount.Nonce = *big.NewInt(int64(submitterNonce))
+	setup.SubmitAccount.Nonce = big.NewInt(int64(submitterNonce))
 
 	transactNonce, err := setup.Client.PendingNonceAt(context.Background(), setup.TransactAccount.Address)
 	if err != nil {
 		return environment, fmt.Errorf("could not query starting nonce %v", err)
 	}
-	setup.TransactAccount.Nonce = *big.NewInt(int64(transactNonce))
+	setup.TransactAccount.Nonce = big.NewInt(int64(transactNonce))
 
 	log.Println("eon is ", eon)
 	return environment, nil
@@ -346,7 +346,7 @@ func transact(setup *StressSetup, env *StressEnvironment, count int) error {
 	for i := range innerTxs {
 		signedTx := innerTxs[i]
 		submitNonce := setup.SubmitAccount.UseNonce()
-		env.SubmitterOpts.Nonce = &submitNonce
+		env.SubmitterOpts.Nonce = submitNonce
 		submitTx, err := submitEncryptedTx(context.Background(), *setup, env, signedTx, i)
 		if err != nil {
 			return err
