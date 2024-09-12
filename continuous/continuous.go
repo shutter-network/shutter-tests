@@ -319,12 +319,17 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 	status := Status{lastShutterTS: pgtype.Date{}}
 	connection := NewConnection()
 	query := `
-	SELECT to_timestamp(max(b.block_timestamp)) as ts,
-	COUNT(d.*) as count
-	FROM decryption_keys_message_decryption_key d
-		LEFT JOIN block b ON d.decryption_keys_message_slot = b.slot
-		GROUP BY d.decryption_keys_message_slot
-		ORDER BY d.decryption_keys_message_slot;
+		SELECT
+		to_timestamp(b.block_timestamp)
+		FROM validator_status AS v
+		LEFT JOIN proposer_duties AS p
+		ON p.validator_index = v.validator_index
+		LEFT JOIN block AS b
+		ON b.slot=p.slot
+		WHERE v.status = 'active_ongoing'
+		AND b.slot = p.slot
+		ORDER BY b.block_number DESC
+		LIMIT 1;
 	`
 	rows, err := connection.db.Query(context.Background(), query)
 	if err != nil {
@@ -332,9 +337,8 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 	}
 	defer rows.Close()
 	var ts pgtype.Date
-	var count int
 	for rows.Next() {
-		rows.Scan(&ts, &count)
+		rows.Scan(&ts)
 		if !ts.Time.IsZero() {
 			status.lastShutterTS = ts
 		}
@@ -355,19 +359,20 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 }
 
 func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBlock {
-
 	var block int64
 	var ts pgtype.Date
-	var count int
 	query := `
-	SELECT b.block_number,
-	to_timestamp(max(b.block_timestamp)) as ts,
-	COUNT(d.*) as count
-	FROM decryption_keys_message_decryption_key d
-		LEFT JOIN block b ON d.decryption_keys_message_slot = b.slot
-		WHERE b.block_timestamp > $1
-		GROUP BY d.decryption_keys_message_slot, b.block_number
-		ORDER BY d.decryption_keys_message_slot;
+		SELECT
+		b.block_number,
+		to_timestamp(b.block_timestamp)
+		FROM validator_status AS v
+		LEFT JOIN proposer_duties AS p
+		ON p.validator_index = v.validator_index
+		LEFT JOIN block AS b
+		ON b.slot=p.slot
+		WHERE v.status = 'active_ongoing'
+		AND b.slot = p.slot
+		AND b.block_timestamp > $1;
 	`
 	rows, err := db.Query(context.Background(), query, lastBlockTS.Time.Unix())
 	if err != nil {
@@ -375,9 +380,9 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	}
 	defer rows.Close()
 	for rows.Next() {
-		rows.Scan(&block, &ts, &count)
+		rows.Scan(&block, &ts)
 		if !ts.Time.IsZero() {
-			log.Printf("FOUND NEW SHUTTER BLOCK %v: %v [%v txs]", block, ts.Time, count-1)
+			log.Printf("FOUND NEW SHUTTER BLOCK %v: %v", block, ts.Time)
 		}
 	}
 	if rows.Err() != nil {
@@ -507,16 +512,32 @@ func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 	includedReceipt, err := utils.WaitForTxCtx(tx.ctx, *tx.innerTx, fmt.Sprintf("inclusion[%v]", tx.triggerBlock), client)
 	select {
 	case <-tx.ctx.Done():
-		err = forfeitNonce(tx.innerTx.Nonce(), *tx.sender, client)
-		if err != nil {
-			log.Println("could not reset nonce", err)
-		}
 		switch tx.ctx.Err() {
 		case context.Canceled:
+			err = forfeitNonce(tx.innerTx.Nonce(), *tx.sender, client)
+			if err != nil {
+				if err.Error()[0:8] == "OldNonce" {
+					// FIXME: the error message is rpc endpoint implementation specific (in this case Nethermind)
+					// ...but at this point there is a very high chance, that the tx
+					// was included before we could send the cancellation.
+					fmt.Println("OOOOOOLD NONCE")
+				}
+				log.Println("could not reset nonce", err)
+			}
 			tx.txStatus = TxStatus(NotIncluded)
 			log.Println(tx)
 			return
 		case context.DeadlineExceeded:
+			err = forfeitNonce(tx.innerTx.Nonce(), *tx.sender, client)
+			if err != nil {
+				if err.Error()[0:8] == "OldNonce" {
+					// FIXME: the error message is rpc endpoint implementation specific (in this case Nethermind)
+					// ...but at this point there is a very high chance, that the tx
+					// was included before we could send the cancellation.
+					fmt.Println("OOOOOOLD NONCE")
+				}
+				log.Println("could not reset nonce", err)
+			}
 			tx.txStatus = TxStatus(SystemFailure)
 			log.Println(tx)
 			return
@@ -584,12 +605,14 @@ func CheckTxInFlight(blockNumber int64, cfg *Configuration) {
 		done := false
 		switch s := tx.txStatus; s {
 		case Signed:
+			// maybe we should not cancel Signed not-yet-Sequenced
 			if tx.triggerBlock < blockNumber-2 {
 				tx.cancel()
 				tx.cancelBlock = blockNumber
 				done = true
 			}
 		case Sequenced:
+			// cancel signal should be: another included tx with inclusion block > submission block
 			if tx.submissionBlock < blockNumber-1 {
 				tx.cancel()
 				tx.cancelBlock = blockNumber
@@ -604,6 +627,7 @@ func CheckTxInFlight(blockNumber int64, cfg *Configuration) {
 			newInflight = append(newInflight, tx)
 		}
 	}
+	// FIXME: here we could potentially lose some newly in flight tx
 	cfg.status.txInFlight = newInflight
 }
 
