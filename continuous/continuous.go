@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/montanaflynn/stats"
 	"github.com/shutter-network/nethermind-tests/utils"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
 )
@@ -362,7 +363,7 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 }
 
 func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBlock {
-	var block int64
+	block := int64(0)
 	var ts pgtype.Date
 	query := `
 		SELECT
@@ -383,6 +384,9 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	}
 	defer rows.Close()
 	for rows.Next() {
+		if block != 0 {
+			log.Fatal("Finding multiple blocks")
+		}
 		rows.Scan(&block, &ts)
 		if !ts.Time.IsZero() {
 			log.Printf("FOUND NEW SHUTTER BLOCK %v: %v", block, ts.Time)
@@ -652,4 +656,64 @@ func PrintAllTx(cfg *Configuration) {
 
 func Setup() (Configuration, error) {
 	return createConfiguration()
+}
+
+func CollectSequencerEvents(startBlock uint64, endBlock uint64, cfg *Configuration) error {
+	failCnt := 0
+	var delays []float64
+	success, err := collectSubmitIncomingTx(startBlock, endBlock, cfg)
+	if err != nil {
+		return err
+	}
+	submit, err := collectSequencerEvents(startBlock, endBlock, cfg)
+	if err != nil {
+		return err
+	}
+	successByTrigger := make(map[int64]Success)
+	for i := range success {
+		successByTrigger[success[i].trigger] = success[i]
+	}
+
+	for i := range submit {
+		trigger := submit[i].trigger
+		included, ok := successByTrigger[trigger]
+		if ok {
+			delay := float64(included.included - submit[i].sequenced)
+			delays = append(delays, delay)
+		} else {
+			failCnt++
+		}
+	}
+	failPct := (float64(failCnt) / float64(len(submit)) * 100)
+	avgDelay, err := stats.Mean(delays)
+	if err != nil {
+		return err
+	}
+	maxDelay, err := stats.Max(delays)
+	if err != nil {
+		return err
+	}
+	minDelay, err := stats.Min(delays)
+	if err != nil {
+		return err
+	}
+	medianDelay, err := stats.Median(delays)
+	if err != nil {
+		return err
+	}
+	lastValidTrigger := endBlock - 1
+	triggers, err := queryBlockTriggers(startBlock, lastValidTrigger, cfg)
+	if err != nil {
+		return err
+	}
+	submitTriggers := make([]int64, len(submit))
+	for i, s := range submit {
+		submitTriggers[i] = s.trigger
+	}
+
+	log.Printf("found %v shutter test tx in block range[%v:%v] (%v triggers)\n", len(submit), startBlock, endBlock, len(triggers))
+	log.Printf("fail percentage %3.2f", failPct)
+	log.Printf("missed triggers %v: %v", len(triggers)-len(submit), utils.Difference(triggers, submitTriggers))
+	log.Printf("delay max %0.0f min %0.0f avg %3.2f median %3.2f", maxDelay, minDelay, avgDelay, medianDelay)
+	return err
 }

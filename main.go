@@ -48,6 +48,12 @@ func main() {
 				runContinous()
 				wg.Done()
 			}()
+		case "collect":
+			wg.Add(1)
+			go func() {
+				runCollector()
+				wg.Done()
+			}()
 		default:
 			log.Printf("Unknown mode: %s", m)
 		}
@@ -70,4 +76,12 @@ func runContinous() {
 			continuous.PrintAllTx(&cfg)
 		}
 	}
+}
+
+func runCollector() {
+	cfg, err := continuous.Setup()
+	if err != nil {
+		panic(err)
+	}
+	continuous.CollectSequencerEvents(11825374, 11825400, &cfg)
 }

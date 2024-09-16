@@ -445,3 +445,19 @@ func BlockNumberFromPrefix(prefix shcrypto.Block) int64 {
 	v := binary.LittleEndian.Uint64(prefix[:])
 	return int64(v)
 }
+
+func Difference(a, b []int64) []int64 {
+	m := make(map[int64]bool)
+	var diff []int64
+
+	for _, item := range b {
+		m[item] = true
+	}
+
+	for _, item := range a {
+		if _, ok := m[item]; !ok {
+			diff = append(diff, item)
+		}
+	}
+	return diff
+}

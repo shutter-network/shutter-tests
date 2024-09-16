@@ -7,6 +7,7 @@ require (
 	github.com/jackc/pgtype v1.14.0
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/joho/godotenv v1.5.1
+	github.com/montanaflynn/stats v0.7.1
 	github.com/shutter-network/contracts/v2 v2.0.0-beta.2
 	github.com/shutter-network/rolling-shutter/rolling-shutter v0.0.7-0.20240806080606-131e353220cd
 	github.com/shutter-network/shutter/shlib v0.1.19
