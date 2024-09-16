@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/ecdsa"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -430,4 +431,17 @@ func GetEonKey(
 		return 0, nil, fmt.Errorf("could not unmarshal eonKeyBytes %v", err)
 	}
 	return eon, eonKey, nil
+}
+
+func PrefixFromBlockNumber(blockNumber int64) shcrypto.Block {
+	bytes := make([]byte, shcrypto.BlockSize)
+	if blockNumber > 0 {
+		binary.LittleEndian.PutUint64(bytes, uint64(blockNumber))
+	}
+	return shcrypto.Block(bytes)
+}
+
+func BlockNumberFromPrefix(prefix shcrypto.Block) int64 {
+	v := binary.LittleEndian.Uint64(prefix[:])
+	return int64(v)
 }

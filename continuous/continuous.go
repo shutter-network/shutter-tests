@@ -2,11 +2,11 @@ package continuous
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"log"
 	"math/big"
 	"os"
+	"sync"
 	"time"
 
 	cryptorand "crypto/rand"
@@ -30,13 +30,20 @@ type Connection struct {
 }
 
 type Status struct {
-	lastShutterTS pgtype.Date
-	txInFlight    []*ShutterTx
-	txDone        []*ShutterTx
+	statusModMutex *sync.Mutex
+	lastShutterTS  pgtype.Date
+	txInFlight     []*ShutterTx
+	txDone         []*ShutterTx
 }
 
 func (s Status) TxCount() int {
 	return len(s.txInFlight) + len(s.txDone)
+}
+
+func (s *Status) AddTxInFlight(t *ShutterTx) {
+	s.statusModMutex.Lock()
+	s.txInFlight = append(s.txInFlight, t)
+	s.statusModMutex.Unlock()
 }
 
 type ShutterTx struct {
@@ -123,14 +130,6 @@ type ShutterBlock struct {
 	Ts     pgtype.Date
 }
 
-func PrefixFromBlockNumber(blockNumber int64) shcrypto.Block {
-	bytes := make([]byte, shcrypto.BlockSize)
-	if blockNumber > 0 {
-		binary.LittleEndian.PutUint64(bytes, uint64(blockNumber))
-	}
-	return shcrypto.Block(bytes)
-}
-
 func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Signer) []utils.Account {
 	var result []utils.Account
 	fd, err := os.Open("pk.hex")
@@ -201,7 +200,11 @@ func fundNewAccount(account utils.Account, amount int64, submitAccount *utils.Ac
 }
 
 func createConfiguration() (Configuration, error) {
-	cfg := Configuration{}
+	cfg := Configuration{
+		status: Status{
+			statusModMutex: &sync.Mutex{},
+		},
+	}
 	RpcUrl, err := utils.ReadStringFromEnv("CONTINUOUS_TEST_RPC_URL")
 	if err != nil {
 		return cfg, err
@@ -403,7 +406,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	if err != nil {
 		panic(err)
 	}
-	identityPrefix := PrefixFromBlockNumber(blockNumber)
+	identityPrefix := utils.PrefixFromBlockNumber(blockNumber)
 	identity := utils.ComputeIdentity(identityPrefix[:], cfg.submitAccount.Address)
 	innerNonceP := account.UseNonce()
 	innerTx := types.NewTx(
@@ -468,7 +471,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 		ctx:          ctx,
 		cancel:       cancel,
 	}
-	cfg.status.txInFlight = append(cfg.status.txInFlight, &tx)
+	cfg.status.AddTxInFlight(&tx)
 	log.Println(signedInnerTx.Hash())
 	go WatchTx(&tx, cfg.client)
 }
@@ -600,35 +603,40 @@ func forfeitNonce(nonce uint64, account utils.Account, client *ethclient.Client)
 }
 
 func CheckTxInFlight(blockNumber int64, cfg *Configuration) {
+	cfg.status.statusModMutex.Lock()
 	var newInflight []*ShutterTx
+	newDone := cfg.status.txDone[:]
+	highestInclusion := int64(0)
+	for _, tx := range cfg.status.txInFlight {
+		if tx.inclusionBlock > highestInclusion {
+			highestInclusion = tx.inclusionBlock
+		}
+	}
 	for _, tx := range cfg.status.txInFlight {
 		done := false
 		switch s := tx.txStatus; s {
-		case Signed:
-			// maybe we should not cancel Signed not-yet-Sequenced
-			if tx.triggerBlock < blockNumber-2 {
-				tx.cancel()
-				tx.cancelBlock = blockNumber
-				done = true
-			}
 		case Sequenced:
 			// cancel signal should be: another included tx with inclusion block > submission block
-			if tx.submissionBlock < blockNumber-1 {
+			if highestInclusion > tx.submissionBlock {
 				tx.cancel()
 				tx.cancelBlock = blockNumber
 				done = true
 			}
-		default:
+		case Included:
 			done = true
+		case SystemFailure:
+			done = true
+		default:
 		}
 		if done {
-			cfg.status.txDone = append(cfg.status.txDone, tx)
+			newDone = append(newDone, tx)
 		} else {
 			newInflight = append(newInflight, tx)
 		}
 	}
-	// FIXME: here we could potentially lose some newly in flight tx
 	cfg.status.txInFlight = newInflight
+	cfg.status.txDone = newDone
+	cfg.status.statusModMutex.Unlock()
 }
 
 func PrintAllTx(cfg *Configuration) {
