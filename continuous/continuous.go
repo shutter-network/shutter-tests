@@ -80,7 +80,12 @@ func (tx *ShutterTx) String() string {
 		outerTxHash = tx.outerTx.Hash().Hex()
 		outerTxNonce = fmt.Sprint(tx.outerTx.Nonce())
 	}
-	return fmt.Sprintf("ShutterTx[%v]\t%v\n  trigger:\t%8d\n  submit :\t%8d\t%v n:%v\n  include:\t%8d\t%v n:%v\n  cancel :\t%8d",
+	return fmt.Sprintf(
+		"ShutterTx[%v]\t%v\n"+
+			"\ttrigger:\t%8d\n"+
+			"\tsubmit :\t%8d\t%v n:%v\n"+
+			"\tinclude:\t%8d\t%v n:%v\n"+
+			"\tcancel :\t%8d",
 		tx.txStatus,
 		tx.sender.Address.Hex(),
 		tx.triggerBlock,
@@ -317,19 +322,18 @@ func NewConnection() Connection {
 	return connection
 }
 
-// FIXME: maybe https://github.com/shutter-network/rolling-shutter/blob/fe4ea5fe73a3416b4df9c710d27f764505f89a1f/rolling-shutter/keyperimpl/gnosis/newslot.go#L129 is a better way to do this!
 func QueryAllShutterBlocks(out chan<- ShutterBlock) {
 	waitBetweenQueries := 1 * time.Second
 	status := Status{lastShutterTS: pgtype.Date{}}
 	connection := NewConnection()
 	query := `
 		SELECT
-		to_timestamp(b.block_timestamp)
+			to_timestamp(b.block_timestamp)
 		FROM validator_status AS v
-		LEFT JOIN proposer_duties AS p
-		ON p.validator_index = v.validator_index
-		LEFT JOIN block AS b
-		ON b.slot=p.slot
+			LEFT JOIN proposer_duties AS p
+			ON p.validator_index = v.validator_index
+			LEFT JOIN block AS b
+			ON b.slot=p.slot
 		WHERE v.status = 'active_ongoing'
 		AND b.slot = p.slot
 		ORDER BY b.block_number DESC
@@ -367,13 +371,13 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, db pgxpool.Pool) ShutterBl
 	var ts pgtype.Date
 	query := `
 		SELECT
-		b.block_number,
-		to_timestamp(b.block_timestamp)
+			b.block_number,
+			to_timestamp(b.block_timestamp)
 		FROM validator_status AS v
-		LEFT JOIN proposer_duties AS p
-		ON p.validator_index = v.validator_index
-		LEFT JOIN block AS b
-		ON b.slot=p.slot
+			LEFT JOIN proposer_duties AS p
+			ON p.validator_index = v.validator_index
+			LEFT JOIN block AS b
+			ON b.slot=p.slot
 		WHERE v.status = 'active_ongoing'
 		AND b.slot = p.slot
 		AND b.block_timestamp > $1;
@@ -727,34 +731,4 @@ func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cfg *Configu
 		log.Println(blame)
 	}
 	return err
-}
-
-type ValidatorBlame struct {
-	prefix         []byte
-	triggerBlock   int64
-	submitBlock    int64
-	targetBlock    int64
-	targetSlot     int64
-	validatorIndex int64
-}
-
-func blameValidator(submission Submission, cfg *Configuration) (ValidatorBlame, error) {
-	prefix := utils.PrefixFromBlockNumber(submission.trigger)
-	prefixBytes := prefix[:]
-	blame := ValidatorBlame{
-		triggerBlock: submission.trigger,
-		submitBlock:  submission.sequenced,
-		prefix:       prefixBytes,
-	}
-	err := queryWhoToBlame(&blame)
-	if err != nil {
-		return blame, nil
-	}
-	err = queryDecryptionKeysBySlot(blame)
-	if err != nil {
-		return blame, nil
-	}
-	log.Println(blame)
-
-	return blame, nil
 }
