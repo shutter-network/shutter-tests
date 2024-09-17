@@ -658,8 +658,9 @@ func Setup() (Configuration, error) {
 	return createConfiguration()
 }
 
-func CollectSequencerEvents(startBlock uint64, endBlock uint64, cfg *Configuration) error {
+func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cfg *Configuration) error {
 	failCnt := 0
+	var failed []Submission
 	var delays []float64
 	success, err := collectSubmitIncomingTx(startBlock, endBlock, cfg)
 	if err != nil {
@@ -681,6 +682,7 @@ func CollectSequencerEvents(startBlock uint64, endBlock uint64, cfg *Configurati
 			delay := float64(included.included - submit[i].sequenced)
 			delays = append(delays, delay)
 		} else {
+			failed = append(failed, submit[i])
 			failCnt++
 		}
 	}
@@ -711,9 +713,48 @@ func CollectSequencerEvents(startBlock uint64, endBlock uint64, cfg *Configurati
 		submitTriggers[i] = s.trigger
 	}
 
+	shutterizedPct := float64(len(triggers)) / float64(endBlock-startBlock) * 100
 	log.Printf("found %v shutter test tx in block range[%v:%v] (%v triggers)\n", len(submit), startBlock, endBlock, len(triggers))
+	log.Printf("shutterized blocks %3.2f%%", shutterizedPct)
 	log.Printf("fail percentage %3.2f", failPct)
 	log.Printf("missed triggers %v: %v", len(triggers)-len(submit), utils.Difference(triggers, submitTriggers))
 	log.Printf("delay max %0.0f min %0.0f avg %3.2f median %3.2f", maxDelay, minDelay, avgDelay, medianDelay)
+	for _, f := range failed {
+		blame, err := blameValidator(f, cfg)
+		if err != nil {
+			log.Println(err)
+		}
+		log.Println(blame)
+	}
 	return err
+}
+
+type ValidatorBlame struct {
+	prefix         []byte
+	triggerBlock   int64
+	submitBlock    int64
+	targetBlock    int64
+	targetSlot     int64
+	validatorIndex int64
+}
+
+func blameValidator(submission Submission, cfg *Configuration) (ValidatorBlame, error) {
+	prefix := utils.PrefixFromBlockNumber(submission.trigger)
+	prefixBytes := prefix[:]
+	blame := ValidatorBlame{
+		triggerBlock: submission.trigger,
+		submitBlock:  submission.sequenced,
+		prefix:       prefixBytes,
+	}
+	err := queryWhoToBlame(&blame)
+	if err != nil {
+		return blame, nil
+	}
+	err = queryDecryptionKeysBySlot(blame)
+	if err != nil {
+		return blame, nil
+	}
+	log.Println(blame)
+
+	return blame, nil
 }

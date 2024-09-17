@@ -67,13 +67,17 @@ func runContinous() {
 		panic(err)
 	}
 	fmt.Println("Running continous tx tests...")
+	startBlock := uint64(0)
 	blocks := make(chan continuous.ShutterBlock)
 	go continuous.QueryAllShutterBlocks(blocks)
 	for block := range blocks {
+		if startBlock == 0 {
+			startBlock = uint64(block.Number)
+		}
 		continuous.CheckTxInFlight(block.Number, &cfg)
 		continuous.SendShutterizedTX(block.Number, block.Ts, &cfg)
 		if block.Number%10 == 0 {
-			continuous.PrintAllTx(&cfg)
+			continuous.CollectContinuousTestStats(startBlock, uint64(block.Number), &cfg)
 		}
 	}
 }
@@ -83,5 +87,5 @@ func runCollector() {
 	if err != nil {
 		panic(err)
 	}
-	continuous.CollectSequencerEvents(11825374, 11825400, &cfg)
+	continuous.CollectContinuousTestStats(11840670, 11840778, &cfg)
 }
