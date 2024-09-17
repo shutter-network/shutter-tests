@@ -201,7 +201,6 @@ func queryWhoToBlame(blame *ValidatorBlame) error {
 }
 
 func blameValidator(submission Submission, cfg *Configuration) (ValidatorBlame, error) {
-	log.Printf("searching %v", submission)
 	prefix := utils.PrefixFromBlockNumber(submission.trigger)
 	prefixBytes := prefix[:]
 	blame := ValidatorBlame{
