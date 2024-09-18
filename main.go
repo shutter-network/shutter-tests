@@ -69,7 +69,7 @@ func runContinous() {
 	fmt.Println("Running continous tx tests...")
 	startBlock := uint64(0)
 	blocks := make(chan continuous.ShutterBlock)
-	go continuous.QueryAllShutterBlocks(blocks)
+	go continuous.QueryAllShutterBlocks(blocks, &cfg)
 	for block := range blocks {
 		if startBlock == 0 {
 			startBlock = uint64(block.Number)
@@ -87,5 +87,5 @@ func runCollector() {
 	if err != nil {
 		panic(err)
 	}
-	continuous.CollectContinuousTestStats(11840670, 11840778, &cfg)
+	continuous.CollectContinuousTestStats(11857846, 11859032, &cfg)
 }

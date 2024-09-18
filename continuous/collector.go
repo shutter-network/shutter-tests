@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgtype"
+	"github.com/montanaflynn/stats"
 	"github.com/shutter-network/nethermind-tests/utils"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
 )
@@ -31,8 +32,8 @@ func (b ValidatorBlame) String() string {
 		"validator id\t:%v\n"+
 			"triggered\t:%v\n"+
 			"submitted\t:%v\n"+
-			"target slot\t:%v\n"+
 			"target block\t:%v\n"+
+			"target slot\t:%v\n"+
 			"target ts\t:%v\n"+
 			"ts (key-block)\t:%vms\n"+
 			"decrypted tx\t:%v\n"+
@@ -42,7 +43,7 @@ func (b ValidatorBlame) String() string {
 		b.submitBlock,
 		b.targetBlock,
 		b.targetSlot,
-		b.targetBlockTS.Time.UTC().Format("2006-01-02 15:04:05.000000"),
+		b.targetBlockTS.Time.UTC().Format("2006-12-31 15:04:05.000000"),
 		b.decryptionKey.createdTs.Time.UnixMilli()-b.targetBlockTS.Time.UnixMilli(),
 		b.decryptedTxHash.Hex(),
 		b.decryptionKey,
@@ -63,7 +64,7 @@ func (d DecryptionKey) String() string {
 			"identity preimage:\n"+
 			"prefix\t%v\n"+
 			"sender\t%v",
-		d.createdTs.Time.UTC().Format("2006-01-02 15:04:05.000000"),
+		d.createdTs.Time.UTC().Format("2006-12-31 15:04:05.000000"),
 		d.txPointer,
 		hex.EncodeToString(d.identityPreimage[:32]),
 		hex.EncodeToString(d.identityPreimage[32:]),
@@ -127,7 +128,6 @@ func collectSubmitIncomingTx(startBlock uint64, endBlock uint64, cfg *Configurat
 				result = append(result, success)
 			}
 		}
-
 	}
 	return result, nil
 }
@@ -146,7 +146,7 @@ func queryBlockTriggers(startBlock uint64, endBlock uint64, cfg *Configuration) 
 		AND b.block_number <= $2
 		AND s.status = 'active_ongoing';
 		`
-	connection := NewConnection()
+	connection := NewConnection(cfg)
 	rows, err := connection.db.Query(context.Background(), query, startBlock, endBlock)
 	if err != nil {
 		return blocks, err
@@ -163,7 +163,7 @@ func queryBlockTriggers(startBlock uint64, endBlock uint64, cfg *Configuration) 
 	return blocks, nil
 }
 
-func queryWhoToBlame(blame *ValidatorBlame) error {
+func queryWhoToBlame(blame *ValidatorBlame, cfg *Configuration) error {
 	var targetBlock, targetSlot, validatorIndex int64
 	var targetTS *pgtype.Date
 
@@ -180,7 +180,7 @@ func queryWhoToBlame(blame *ValidatorBlame) error {
 	AND b.block_number > $1
 	ORDER BY b.block_number ASC
 	LIMIT 1;`
-	connection := NewConnection()
+	connection := NewConnection(cfg)
 	rows, err := connection.db.Query(context.Background(), queryWhoToBlame, blame.submitBlock)
 	if err != nil {
 		return err
@@ -208,7 +208,7 @@ func blameValidator(submission Submission, cfg *Configuration) (ValidatorBlame, 
 		submitBlock:  submission.sequenced,
 		prefix:       prefixBytes,
 	}
-	err := queryWhoToBlame(&blame)
+	err := queryWhoToBlame(&blame, cfg)
 	if err != nil {
 		return blame, nil
 	}
@@ -216,8 +216,6 @@ func blameValidator(submission Submission, cfg *Configuration) (ValidatorBlame, 
 	if err != nil {
 		return blame, nil
 	}
-	// log.Println(blame)
-
 	return blame, nil
 }
 
@@ -241,7 +239,7 @@ func queryDecryptionKeysBySlot(blame *ValidatorBlame, cfg *Configuration) error 
 				LEFT JOIN decrypted_tx AS t
 				ON t.decryption_key_id=k.id
         WHERE dkmdk.decryption_keys_message_slot=$1;`
-	connection := NewConnection()
+	connection := NewConnection(cfg)
 	rows, err := connection.db.Query(context.Background(), queryDecryptionKeysBySlot, blame.targetSlot)
 	if err != nil {
 		return err
@@ -266,4 +264,75 @@ func queryDecryptionKeysBySlot(blame *ValidatorBlame, cfg *Configuration) error 
 		return err
 	}
 	return nil
+}
+
+func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cfg *Configuration) error {
+	failCnt := 0
+	var failed []Submission
+	var delays []float64
+	success, err := collectSubmitIncomingTx(startBlock, endBlock, cfg)
+	if err != nil {
+		return err
+	}
+	submit, err := collectSequencerEvents(startBlock, endBlock, cfg)
+	if err != nil {
+		return err
+	}
+	successByTrigger := make(map[int64]Success)
+	for i := range success {
+		successByTrigger[success[i].trigger] = success[i]
+	}
+
+	for i := range submit {
+		trigger := submit[i].trigger
+		included, ok := successByTrigger[trigger]
+		if ok {
+			delay := float64(included.included - submit[i].sequenced)
+			delays = append(delays, delay)
+		} else {
+			failed = append(failed, submit[i])
+			failCnt++
+		}
+	}
+	failPct := (float64(failCnt) / float64(len(submit)) * 100)
+	avgDelay, err := stats.Mean(delays)
+	if err != nil {
+		return err
+	}
+	maxDelay, err := stats.Max(delays)
+	if err != nil {
+		return err
+	}
+	minDelay, err := stats.Min(delays)
+	if err != nil {
+		return err
+	}
+	medianDelay, err := stats.Median(delays)
+	if err != nil {
+		return err
+	}
+	lastValidTrigger := endBlock - 1
+	triggers, err := queryBlockTriggers(startBlock, lastValidTrigger, cfg)
+	if err != nil {
+		return err
+	}
+	submitTriggers := make([]int64, len(submit))
+	for i, s := range submit {
+		submitTriggers[i] = s.trigger
+	}
+
+	shutterizedPct := float64(len(triggers)) / float64(endBlock-startBlock) * 100
+	log.Printf("found %v shutter test tx in block range[%v:%v] (%v triggers)\n", len(submit), startBlock, endBlock, len(triggers))
+	log.Printf("shutterized blocks %3.2f%%", shutterizedPct)
+	log.Printf("fails %v (%3.2f%%)", failCnt, failPct)
+	log.Printf("missed triggers %v: %v", len(triggers)-len(submit), utils.Difference(triggers, submitTriggers))
+	log.Printf("delay max %0.0f min %0.0f avg %3.2f median %3.2f", maxDelay, minDelay, avgDelay, medianDelay)
+	for _, f := range failed {
+		blame, err := blameValidator(f, cfg)
+		if err != nil {
+			log.Println(err)
+		}
+		log.Println(blame)
+	}
+	return err
 }
