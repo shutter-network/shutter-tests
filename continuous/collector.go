@@ -28,26 +28,45 @@ type ValidatorBlame struct {
 }
 
 func (b ValidatorBlame) String() string {
-	return fmt.Sprintf(
-		"validator id\t:%v\n"+
-			"triggered\t:%v\n"+
-			"submitted\t:%v\n"+
-			"target block\t:%v\n"+
-			"target slot\t:%v\n"+
-			"target ts\t:%v\n"+
-			"ts (key-block)\t:%vms\n"+
-			"decrypted tx\t:%v\n"+
-			"decryption key:\n%v\n",
-		b.validatorIndex,
-		b.triggerBlock,
-		b.submitBlock,
-		b.targetBlock,
-		b.targetSlot,
-		b.targetBlockTS.Time.UTC().Format("2006-12-31 15:04:05.000000"),
-		b.decryptionKey.createdTs.Time.UnixMilli()-b.targetBlockTS.Time.UnixMilli(),
-		b.decryptedTxHash.Hex(),
-		b.decryptionKey,
-	)
+	emptyHash := common.Hash(make([]byte, common.HashLength))
+	if b.decryptedTxHash == emptyHash {
+		return fmt.Sprintf(
+			"validator id\t:%v\n"+
+				"triggered\t:%v\n"+
+				"submitted\t:%v\n"+
+				"target block\t:%v\n"+
+				"target slot\t:%v\n"+
+				"target ts\t:%v\n"+
+				"NO DECRYPTION KEY SEEN\n",
+			b.validatorIndex,
+			b.triggerBlock,
+			b.submitBlock,
+			b.targetBlock,
+			b.targetSlot,
+			b.targetBlockTS.Time.UTC().Format("2006-12-31 15:04:05.000000"),
+		)
+	} else {
+		return fmt.Sprintf(
+			"validator id\t:%v\n"+
+				"triggered\t:%v\n"+
+				"submitted\t:%v\n"+
+				"target block\t:%v\n"+
+				"target slot\t:%v\n"+
+				"target ts\t:%v\n"+
+				"ts (key-block)\t:%vms\n"+
+				"decrypted tx\t:%v\n"+
+				"decryption key:\n%v\n",
+			b.validatorIndex,
+			b.triggerBlock,
+			b.submitBlock,
+			b.targetBlock,
+			b.targetSlot,
+			b.targetBlockTS.Time.UTC().Format("2006-12-31 15:04:05.000000"),
+			b.decryptionKey.createdTs.Time.UnixMilli()-b.targetBlockTS.Time.UnixMilli(),
+			b.decryptedTxHash.Hex(),
+			b.decryptionKey,
+		)
+	}
 }
 
 type DecryptionKey struct {
