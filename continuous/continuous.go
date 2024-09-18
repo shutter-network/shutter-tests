@@ -39,7 +39,7 @@ type ShutterBlock struct {
 func QueryAllShutterBlocks(out chan<- ShutterBlock, cfg *Configuration) {
 	waitBetweenQueries := 1 * time.Second
 	status := Status{lastShutterTS: pgtype.Date{}}
-	connection := NewConnection(cfg)
+	connection := GetConnection(cfg)
 	query := `
 		SELECT
 			to_timestamp(b.block_timestamp)
@@ -81,7 +81,7 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock, cfg *Configuration) {
 }
 
 func queryNewestShutterBlock(lastBlockTS pgtype.Date, cfg *Configuration) ShutterBlock {
-	connection := NewConnection(cfg)
+	connection := GetConnection(cfg)
 	block := int64(0)
 	var ts pgtype.Date
 	query := `

@@ -13,16 +13,17 @@ import (
 	"github.com/shutter-network/nethermind-tests/utils"
 )
 
-func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Signer) []utils.Account {
+func retrieveAccounts(num int, client *ethclient.Client, signerForChain types.Signer, cfg *Configuration) []utils.Account {
 	var result []utils.Account
-	fd, err := os.Open("pk.hex")
+	fd, err := os.Open(cfg.PkFile)
 	if err != nil {
-		log.Println("could not open pk.hex")
+		log.Println("could not open pk file", cfg.PkFile)
 	}
 	defer fd.Close()
 	pks, err := utils.ReadPks(fd)
 	if err != nil {
 		log.Printf("error when reading private keys %v\n", err)
+		panic(err)
 	}
 	for _, pk := range pks {
 		acc, err := utils.AccountFromPrivateKey(pk, signerForChain)

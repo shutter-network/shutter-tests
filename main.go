@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/shutter-network/nethermind-tests/config"
 	"github.com/shutter-network/nethermind-tests/tests"
@@ -14,11 +16,17 @@ import (
 )
 
 func main() {
-	cfg := config.LoadConfig()
-	log.Println(cfg.Mode)
-	mode := cfg.Mode
-	modes := strings.Split(mode, ",")
+	var modes []string
+	var cfg config.Config
+	if len(os.Args[1:]) == 0 {
+		cfg := config.LoadConfig()
+		log.Println(cfg.Mode)
+		mode := cfg.Mode
 
+		modes = strings.Split(mode, ",")
+	} else {
+		modes = []string{os.Args[1]}
+	}
 	utils.EnableExtLoggingFile()
 
 	var wg sync.WaitGroup
@@ -50,6 +58,9 @@ func main() {
 			}()
 		case "collect":
 			wg.Add(1)
+			if len(os.Args[2:]) != 2 {
+				log.Fatalf("Usage: %v %v start-block end-block", os.Args[0], os.Args[1])
+			}
 			go func() {
 				runCollector()
 				wg.Done()
@@ -67,6 +78,7 @@ func runContinous() {
 		panic(err)
 	}
 	fmt.Println("Running continous tx tests...")
+	lastStats := time.Now().Unix()
 	startBlock := uint64(0)
 	blocks := make(chan continuous.ShutterBlock)
 	go continuous.QueryAllShutterBlocks(blocks, &cfg)
@@ -76,16 +88,23 @@ func runContinous() {
 		}
 		continuous.CheckTxInFlight(block.Number, &cfg)
 		continuous.SendShutterizedTX(block.Number, block.Ts, &cfg)
-		if block.Number%10 == 0 {
+		now := time.Now().Unix()
+		if now-lastStats > 120 {
+			log.Println("running stats")
+			lastStats = now
 			continuous.CollectContinuousTestStats(startBlock, uint64(block.Number), &cfg)
 		}
 	}
 }
 
 func runCollector() {
+	start, end := utils.CollectBlockRangeFromArgs()
 	cfg, err := continuous.Setup()
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	continuous.CollectContinuousTestStats(11857846, 11859032, &cfg)
+	err = continuous.CollectContinuousTestStats(start, end, &cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

@@ -1,11 +1,15 @@
 package continuous
 
 import (
+	"bufio"
 	"context"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
+	"os"
+	"path"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -31,37 +35,37 @@ func (b ValidatorBlame) String() string {
 	emptyHash := common.Hash(make([]byte, common.HashLength))
 	if b.decryptedTxHash == emptyHash {
 		return fmt.Sprintf(
-			"validator id\t:%v\n"+
-				"triggered\t:%v\n"+
-				"submitted\t:%v\n"+
-				"target block\t:%v\n"+
-				"target slot\t:%v\n"+
-				"target ts\t:%v\n"+
+			"validator id\t: %v\n"+
+				"triggered\t: %v\n"+
+				"submitted\t: %v\n"+
+				"target block\t: %v\n"+
+				"target slot\t: %v\n"+
+				"target ts\t: %v\n"+
 				"NO DECRYPTION KEY SEEN\n",
 			b.validatorIndex,
 			b.triggerBlock,
 			b.submitBlock,
 			b.targetBlock,
 			b.targetSlot,
-			b.targetBlockTS.Time.UTC().Format("2006-12-31 15:04:05.000000"),
+			b.targetBlockTS.Time.UTC().Format("2006-01-01 15:04:05.000000"),
 		)
 	} else {
 		return fmt.Sprintf(
-			"validator id\t:%v\n"+
-				"triggered\t:%v\n"+
-				"submitted\t:%v\n"+
-				"target block\t:%v\n"+
-				"target slot\t:%v\n"+
-				"target ts\t:%v\n"+
-				"ts (key-block)\t:%vms\n"+
-				"decrypted tx\t:%v\n"+
+			"validator id\t: %v\n"+
+				"triggered\t: %v\n"+
+				"submitted\t: %v\n"+
+				"target block\t: %v\n"+
+				"target slot\t: %v\n"+
+				"target ts\t: %v\n"+
+				"ts (key-target)\t: %vms\n"+
+				"decrypted tx\t: %v\n"+
 				"decryption key:\n%v\n",
 			b.validatorIndex,
 			b.triggerBlock,
 			b.submitBlock,
 			b.targetBlock,
 			b.targetSlot,
-			b.targetBlockTS.Time.UTC().Format("2006-12-31 15:04:05.000000"),
+			b.targetBlockTS.Time.UTC().Format("2006-01-01 15:04:05.000000"),
 			b.decryptionKey.createdTs.Time.UnixMilli()-b.targetBlockTS.Time.UnixMilli(),
 			b.decryptedTxHash.Hex(),
 			b.decryptionKey,
@@ -78,12 +82,12 @@ type DecryptionKey struct {
 
 func (d DecryptionKey) String() string {
 	return fmt.Sprintf(
-		"first seen\t:%v\n"+
-			"tx pointer\t:%v\n"+
+		"first seen\t: %v\n"+
+			"tx pointer\t: %v\n"+
 			"identity preimage:\n"+
 			"prefix\t%v\n"+
 			"sender\t%v",
-		d.createdTs.Time.UTC().Format("2006-12-31 15:04:05.000000"),
+		d.createdTs.Time.UTC().Format("2006-01-01 15:04:05.000000"),
 		d.txPointer,
 		hex.EncodeToString(d.identityPreimage[:32]),
 		hex.EncodeToString(d.identityPreimage[32:]),
@@ -165,7 +169,7 @@ func queryBlockTriggers(startBlock uint64, endBlock uint64, cfg *Configuration) 
 		AND b.block_number <= $2
 		AND s.status = 'active_ongoing';
 		`
-	connection := NewConnection(cfg)
+	connection := GetConnection(cfg)
 	rows, err := connection.db.Query(context.Background(), query, startBlock, endBlock)
 	if err != nil {
 		return blocks, err
@@ -199,7 +203,7 @@ func queryWhoToBlame(blame *ValidatorBlame, cfg *Configuration) error {
 	AND b.block_number > $1
 	ORDER BY b.block_number ASC
 	LIMIT 1;`
-	connection := NewConnection(cfg)
+	connection := GetConnection(cfg)
 	rows, err := connection.db.Query(context.Background(), queryWhoToBlame, blame.submitBlock)
 	if err != nil {
 		return err
@@ -258,7 +262,7 @@ func queryDecryptionKeysBySlot(blame *ValidatorBlame, cfg *Configuration) error 
 				LEFT JOIN decrypted_tx AS t
 				ON t.decryption_key_id=k.id
         WHERE dkmdk.decryption_keys_message_slot=$1;`
-	connection := NewConnection(cfg)
+	connection := GetConnection(cfg)
 	rows, err := connection.db.Query(context.Background(), queryDecryptionKeysBySlot, blame.targetSlot)
 	if err != nil {
 		return err
@@ -341,17 +345,49 @@ func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cfg *Configu
 	}
 
 	shutterizedPct := float64(len(triggers)) / float64(endBlock-startBlock) * 100
-	log.Printf("found %v shutter test tx in block range[%v:%v] (%v triggers)\n", len(submit), startBlock, endBlock, len(triggers))
-	log.Printf("shutterized blocks %3.2f%%", shutterizedPct)
-	log.Printf("fails %v (%3.2f%%)", failCnt, failPct)
-	log.Printf("missed triggers %v: %v", len(triggers)-len(submit), utils.Difference(triggers, submitTriggers))
-	log.Printf("delay max %0.0f min %0.0f avg %3.2f median %3.2f", maxDelay, minDelay, avgDelay, medianDelay)
+	var blames []ValidatorBlame
 	for _, f := range failed {
 		blame, err := blameValidator(f, cfg)
 		if err != nil {
 			log.Println(err)
 		}
-		log.Println(blame)
+		blames = append(blames, blame)
 	}
+	blameFile := path.Join(cfg.blameFolder, fmt.Sprint(time.Now().Unix())+".blame")
+	log.Println("writing blame to ", blameFile)
+	f, err := os.Create(blameFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+
+	_, err = fmt.Fprintf(w, "found %v shutter test tx in block range[%v:%v] (%v triggers)\n", len(submit), startBlock, endBlock, len(triggers))
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "shutterized blocks %3.2f%%\n", shutterizedPct)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "fails %v (%3.2f%%)\n", failCnt, failPct)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "missed triggers %v: %v\n", len(triggers)-len(submit), utils.Difference(triggers, submitTriggers))
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "delay max %0.0f min %0.0f avg %3.2f median %3.2f\n", maxDelay, minDelay, avgDelay, medianDelay)
+	if err != nil {
+		return err
+	}
+	for _, blame := range blames {
+		_, err = fmt.Fprintln(w, blame)
+		if err != nil {
+			return err
+		}
+	}
+	w.Flush()
 	return err
 }

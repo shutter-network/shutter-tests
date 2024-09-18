@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"os"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -460,4 +461,16 @@ func Difference(a, b []int64) []int64 {
 		}
 	}
 	return diff
+}
+
+func CollectBlockRangeFromArgs() (uint64, uint64) {
+	start, err := strconv.Atoi(os.Args[2])
+	if err != nil {
+		log.Fatalf("not a valid block-number %v", os.Args[2])
+	}
+	end, err := strconv.Atoi(os.Args[3])
+	if err != nil {
+		log.Fatalf("not a valid block-number %v", os.Args[2])
+	}
+	return uint64(start), uint64(end)
 }

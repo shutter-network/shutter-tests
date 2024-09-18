@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"os"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/core/types"
@@ -24,6 +25,9 @@ type Configuration struct {
 	DbPass        string
 	DbAddr        string
 	DbName        string
+	PkFile        string
+	blameFolder   string
+	Connection
 }
 
 func (cfg *Configuration) NextAccount() *utils.Account {
@@ -35,6 +39,12 @@ func createConfiguration() (Configuration, error) {
 			statusModMutex: &sync.Mutex{},
 		},
 	}
+	PkFile, err := utils.ReadStringFromEnv("CONTINUOUS_PK_FILE")
+	if err != nil {
+		return cfg, err
+	}
+	cfg.PkFile = PkFile
+
 	RpcUrl, err := utils.ReadStringFromEnv("CONTINUOUS_TEST_RPC_URL")
 	if err != nil {
 		return cfg, err
@@ -73,7 +83,7 @@ func createConfiguration() (Configuration, error) {
 	}
 	submitAccount.Nonce = big.NewInt(int64(submitNonce))
 	cfg.submitAccount = submitAccount
-	accounts := retrieveAccounts(NumFundedAccounts, client, signerForChain)
+	accounts := retrieveAccounts(NumFundedAccounts, client, signerForChain, &cfg)
 	createdAccounts, err := createAccounts(NumFundedAccounts-len(accounts), signerForChain)
 	if err != nil {
 		return cfg, err
@@ -124,12 +134,24 @@ func createConfiguration() (Configuration, error) {
 	if err != nil {
 		return cfg, err
 	}
+	log.Println("DbAddr is", DbAddr)
 	cfg.DbAddr = DbAddr
 	DbPass, err := utils.ReadStringFromEnv("CONTINUOUS_DB_PASS")
 	if err != nil {
 		return cfg, err
 	}
 	cfg.DbPass = DbPass
-
+	blameFolder, err := utils.ReadStringFromEnv("CONTINUOUS_BLAME_FOLDER")
+	if err != nil {
+		return cfg, err
+	}
+	if len(blameFolder) == 0 {
+		tmp, err := os.MkdirTemp("", "blame")
+		if err != nil {
+			return cfg, err
+		}
+		blameFolder = tmp
+	}
+	cfg.blameFolder = blameFolder
 	return cfg, nil
 }
