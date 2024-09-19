@@ -119,10 +119,8 @@ func collectSequencerEvents(startBlock uint64, endBlock uint64, cfg *Configurati
 				trigger:   utils.BlockNumberFromPrefix(ev.IdentityPrefix),
 				sequenced: int64(ev.Raw.BlockNumber),
 			}
-			if submission.trigger >= int64(startBlock) {
+			if submission.trigger >= int64(startBlock) && submission.trigger <= (int64(endBlock)+1000) {
 				submissions = append(submissions, submission)
-			} else {
-				log.Printf("ignoring submission with prefix block %v", submission.trigger)
 			}
 		} else {
 			err = it.Error()
