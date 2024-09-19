@@ -102,6 +102,11 @@ func createConfiguration() (Configuration, error) {
 		}
 	}
 	cfg.accounts = accounts
+	submitNonce, err = client.NonceAt(context.Background(), submitAccount.Address, nil)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.submitAccount.Nonce = big.NewInt(int64(submitNonce))
 
 	keyBroadcastAddress, err := utils.ReadStringFromEnv("CONTINUOUS_KEY_BROADCAST_CONTRACT_ADDRESS")
 	if err != nil {
