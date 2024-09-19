@@ -136,20 +136,29 @@ type Success struct {
 	included int64
 }
 
-func collectSubmitIncomingTx(startBlock uint64, endBlock uint64, cfg *Configuration) ([]Success, error) {
+type BlockCache map[uint64][]Success
+
+func collectSubmitIncomingTx(startBlock uint64, endBlock uint64, cache *BlockCache, cfg *Configuration) ([]Success, error) {
 	var result []Success
 	for blockNum := startBlock; blockNum <= endBlock; blockNum++ {
-		num := big.NewInt(int64(blockNum))
-		block, err := cfg.client.BlockByNumber(context.Background(), num)
-		if err != nil {
-			return result, nil
-		}
-		txs := block.Transactions()
-		for _, tx := range txs {
-			if tx.To() != nil && tx.To().Hex() == cfg.submitAccount.Address.Hex() {
-				success := Success{tx.Value().Int64(), block.Number().Int64()}
-				result = append(result, success)
+		if found, ok := (*cache)[blockNum]; ok {
+			result = append(result, found...)
+		} else {
+			num := big.NewInt(int64(blockNum))
+			block, err := cfg.client.BlockByNumber(context.Background(), num)
+			if err != nil {
+				return result, nil
 			}
+			txs := block.Transactions()
+			var successForBlock []Success
+			for _, tx := range txs {
+				if tx.To() != nil && tx.To().Hex() == cfg.submitAccount.Address.Hex() {
+					success := Success{tx.Value().Int64(), block.Number().Int64()}
+					result = append(result, success)
+					successForBlock = append(successForBlock, success)
+				}
+			}
+			(*cache)[blockNum] = successForBlock
 		}
 	}
 	return result, nil
@@ -289,11 +298,11 @@ func queryDecryptionKeysBySlot(blame *ValidatorBlame, cfg *Configuration) error 
 	return nil
 }
 
-func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cfg *Configuration) error {
+func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cache *BlockCache, cfg *Configuration) error {
 	failCnt := 0
 	var failed []Submission
 	var delays []float64
-	success, err := collectSubmitIncomingTx(startBlock, endBlock, cfg)
+	success, err := collectSubmitIncomingTx(startBlock, endBlock, cache, cfg)
 	if err != nil {
 		return err
 	}
