@@ -79,7 +79,8 @@ func runContinous() {
 	}
 	fmt.Println("Running continous tx tests...")
 	lastStats := time.Now().Unix()
-	cache := make(continuous.BlockCache)
+	cache := continuous.BlockCache{}
+	go continuous.PrimeBlockCache(&cache, &cfg)
 	startBlock := uint64(0)
 	blocks := make(chan continuous.ShutterBlock)
 	go continuous.QueryAllShutterBlocks(blocks, &cfg)
@@ -107,7 +108,7 @@ func runCollector() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	cache := make(continuous.BlockCache)
+	cache := continuous.BlockCache{}
 	err = continuous.CollectContinuousTestStats(start, end, &cache, &cfg)
 	if err != nil {
 		log.Fatal(err)

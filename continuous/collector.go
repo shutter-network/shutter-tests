@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -136,14 +137,57 @@ type Success struct {
 	included int64
 }
 
-type BlockCache map[uint64][]Success
+type BlockCache struct {
+	store sync.Map
+}
+
+func (b *BlockCache) Load(key uint64) ([]Success, bool) {
+	v, ok := b.store.Load(key)
+	if ok {
+		return v.([]Success), ok
+	} else {
+		return nil, false
+	}
+}
+
+func (b *BlockCache) Store(key uint64, value []Success) {
+	b.store.Store(key, value)
+}
+
+func (b *BlockCache) MaxKey() uint64 {
+	m := uint64(0)
+	b.store.Range(func(k, v interface{}) bool {
+		m = max(m, k.(uint64))
+		return true
+	})
+	return m
+}
+
+func PrimeBlockCache(cache *BlockCache, cfg *Configuration) {
+	for {
+		maxCached := cache.MaxKey()
+		if maxCached > 0 {
+			maxBlock, err := cfg.client.BlockNumber(context.Background())
+			if err != nil {
+				log.Println("error when priming cache", err)
+			}
+			if maxCached < maxBlock {
+				collectSubmitIncomingTx(maxCached, maxBlock, cache, cfg)
+			}
+		}
+		time.Sleep(time.Second * 2)
+	}
+}
 
 func collectSubmitIncomingTx(startBlock uint64, endBlock uint64, cache *BlockCache, cfg *Configuration) ([]Success, error) {
 	var result []Success
 	for blockNum := startBlock; blockNum <= endBlock; blockNum++ {
-		if found, ok := (*cache)[blockNum]; ok {
+		if found, ok := cache.Load(blockNum); ok {
 			result = append(result, found...)
 		} else {
+			if endBlock-startBlock > 1 {
+				log.Println("cache miss", blockNum)
+			}
 			num := big.NewInt(int64(blockNum))
 			block, err := cfg.client.BlockByNumber(context.Background(), num)
 			if err != nil {
@@ -158,7 +202,7 @@ func collectSubmitIncomingTx(startBlock uint64, endBlock uint64, cache *BlockCac
 					successForBlock = append(successForBlock, success)
 				}
 			}
-			(*cache)[blockNum] = successForBlock
+			cache.Store(blockNum, successForBlock)
 		}
 	}
 	return result, nil
