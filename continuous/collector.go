@@ -14,10 +14,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jackc/pgtype"
 	"github.com/montanaflynn/stats"
 	"github.com/shutter-network/nethermind-tests/utils"
 	"github.com/shutter-network/shutter/shlib/shcrypto"
+	"golang.org/x/sync/errgroup"
 )
 
 type ValidatorBlame struct {
@@ -30,6 +33,7 @@ type ValidatorBlame struct {
 	decryptedTxHash common.Hash
 	validatorIndex  int64
 	decryptionKey   DecryptionKey
+	sender          common.Address
 }
 
 func (b ValidatorBlame) String() string {
@@ -42,13 +46,18 @@ func (b ValidatorBlame) String() string {
 				"target block\t: %v\n"+
 				"target slot\t: %v\n"+
 				"target ts\t: %v\n"+
-				"NO DECRYPTION KEY SEEN\n",
+				"NO DECRYPTION KEY SEEN\n"+
+				"identity preimage:\n"+
+				"prefix\t%v\n"+
+				"sender\t%v",
 			b.validatorIndex,
 			b.triggerBlock,
 			b.submitBlock,
 			b.targetBlock,
 			b.targetSlot,
 			b.targetBlockTS.Time.UTC().Format("2006-01-01 15:04:05.000000"),
+			hex.EncodeToString(b.prefix),
+			hex.EncodeToString(b.sender.Bytes()),
 		)
 	} else {
 		return fmt.Sprintf(
@@ -161,20 +170,51 @@ func (b *BlockCache) MaxKey() uint64 {
 	return m
 }
 
-func PrimeBlockCache(cache *BlockCache, cfg *Configuration) {
-	for {
-		maxCached := cache.MaxKey()
-		if maxCached > 0 {
-			maxBlock, err := cfg.client.BlockNumber(context.Background())
-			if err != nil {
-				log.Println("error when priming cache", err)
-			}
-			if maxCached < maxBlock {
-				collectSubmitIncomingTx(maxCached, maxBlock, cache, cfg)
-			}
-		}
-		time.Sleep(time.Second * 2)
+type NewBlockNumber struct {
+	uint64
+}
+
+func WatchHeads(ctx context.Context, client *ethclient.Client, blocksChannel chan *NewBlockNumber) error {
+	log.Println("START watching heads")
+	newHeads := make(chan *types.Header)
+	sub, err := client.SubscribeNewHead(ctx, newHeads)
+	if err != nil {
+		return err
 	}
+	defer sub.Unsubscribe()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case head := <-newHeads:
+			ev := &NewBlockNumber{
+				head.Number.Uint64(),
+			}
+			blocksChannel <- ev
+		case err := <-sub.Err():
+			log.Println("error when watching heads:", err)
+			return err
+		}
+	}
+}
+
+func PrimeBlockCache(cache *BlockCache, cfg *Configuration) error {
+	blocks := make(chan *NewBlockNumber)
+	group, ctx := errgroup.WithContext(context.Background())
+	group.Go(func() error { return WatchHeads(ctx, cfg.client, blocks) })
+	for block := range blocks {
+		maxCached := cache.MaxKey()
+		if maxCached > 0 && maxCached < block.uint64 {
+			collectSubmitIncomingTx(maxCached, block.uint64, cache, cfg)
+		}
+	}
+	go func() {
+		group.Wait()
+		close(blocks)
+	}()
+
+	log.Println("DONE watching heads")
+	return group.Wait()
 }
 
 func collectSubmitIncomingTx(startBlock uint64, endBlock uint64, cache *BlockCache, cfg *Configuration) ([]Success, error) {
@@ -281,6 +321,7 @@ func blameValidator(submission Submission, cfg *Configuration) (ValidatorBlame, 
 		triggerBlock: submission.trigger,
 		submitBlock:  submission.sequenced,
 		prefix:       prefixBytes,
+		sender:       cfg.submitAccount.Address,
 	}
 	err := queryWhoToBlame(&blame, cfg)
 	if err != nil {
@@ -333,6 +374,7 @@ func queryDecryptionKeysBySlot(blame *ValidatorBlame, cfg *Configuration) error 
 			blame.decryptedTxHash = common.Hash(txHash)
 		}
 	}
+	// panic: runtime error: cannot convert slice with length 0 to array or pointer to array with length 32
 	if rows.Err() != nil {
 		log.Println("errors when finding validator to blame: ", rows.Err())
 		return err
