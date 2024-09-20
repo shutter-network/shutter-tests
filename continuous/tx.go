@@ -8,7 +8,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jackc/pgtype"
@@ -281,7 +280,12 @@ func forfeitNonce(nonce uint64, account utils.Account, client *ethclient.Client)
 	if err != nil {
 		return err
 	}
-	receipt, err := bind.WaitMined(context.Background(), client, signed)
+	receipt, err := utils.WaitForTxSubscribe(
+		context.Background(),
+		*signed,
+		fmt.Sprintf("forfeit nonce[%v] for %v", nonce, account.Address.Hex()),
+		client,
+	)
 	if err != nil {
 		return err
 	}
