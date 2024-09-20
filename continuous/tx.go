@@ -167,7 +167,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 
 func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 	defer tx.cancel()
-	submissionReceipt, err := utils.WaitForTxCtx(tx.ctx, *tx.outerTx, fmt.Sprintf("submission[%v]", tx.triggerBlock), client)
+	submissionReceipt, err := utils.WaitForTxSubscribe(tx.ctx, *tx.outerTx, fmt.Sprintf("submission[%v]", tx.triggerBlock), client)
 	select {
 	case <-tx.ctx.Done():
 		switch tx.ctx.Err() {
@@ -201,7 +201,7 @@ func WatchTx(tx *ShutterTx, client *ethclient.Client) {
 		}
 		return
 	}
-	includedReceipt, err := utils.WaitForTxCtx(tx.ctx, *tx.innerTx, fmt.Sprintf("inclusion[%v]", tx.triggerBlock), client)
+	includedReceipt, err := utils.WaitForTxSubscribe(tx.ctx, *tx.innerTx, fmt.Sprintf("inclusion[%v]", tx.triggerBlock), client)
 	select {
 	case <-tx.ctx.Done():
 		switch tx.ctx.Err() {

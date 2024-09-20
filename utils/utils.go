@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -144,6 +145,41 @@ func HighPriorityGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.
 }
 
 type ConstraintFn func(inclusions []*types.Receipt) error
+
+// this waits for tx by only polling, when a new block is available
+func WaitForTxSubscribe(ctx context.Context, tx types.Transaction, description string, client *ethclient.Client) (*types.Receipt, error) {
+	log.Println("waiting for "+description+" ", tx.Hash().Hex())
+	var receipt *types.Receipt
+	newHeads := make(chan *types.Header)
+	sub, err := client.SubscribeNewHead(ctx, newHeads)
+	if err != nil {
+		return receipt, err
+	}
+	defer sub.Unsubscribe()
+	for {
+		select {
+		case <-ctx.Done():
+			return receipt, ctx.Err()
+		case _ = <-newHeads:
+			receipt, err = client.TransactionReceipt(ctx, tx.Hash())
+			if err == ethereum.NotFound {
+				continue
+			}
+			if err != nil {
+				log.Println("err when checking tx", tx.Hash().Hex(), err)
+				continue
+			}
+			if receipt != nil {
+				log.Println(description, "status", receipt.Status, "block", receipt.BlockNumber)
+				return receipt, nil
+			}
+
+		case err := <-sub.Err():
+			log.Println("error when watching heads:", err)
+			return receipt, err
+		}
+	}
+}
 
 func WaitForTxCtx(ctx context.Context, tx types.Transaction, description string, client *ethclient.Client) (*types.Receipt, error) {
 	log.Println("waiting for "+description+" ", tx.Hash().Hex())
