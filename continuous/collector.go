@@ -49,7 +49,7 @@ func (b ValidatorBlame) String() string {
 				"NO DECRYPTION KEY SEEN\n"+
 				"identity preimage:\n"+
 				"prefix\t%v\n"+
-				"sender\t%v",
+				"sender\t%v\n",
 			b.validatorIndex,
 			b.triggerBlock,
 			b.submitBlock,
@@ -314,6 +314,30 @@ func queryWhoToBlame(blame *ValidatorBlame, cfg *Configuration) error {
 	return nil
 }
 
+func checkSlotMismatch(blame *ValidatorBlame, cfg *Configuration) error {
+	identityPreimage := utils.PrefixFromBlockNumber(blame.triggerBlock)
+	var seenSlot int64
+
+	queryDecryptionKeysByPreimage := `
+	SELECT decryption_keys_message_slot
+	FROM decryption_key AS k
+		LEFT JOIN decryption_keys_message_decryption_key AS dkmdk
+			ON k.id=dkmdk.decryption_key_id
+	WHERE k.identity_preimage=decode($1, 'hex')
+	`
+	connection := GetConnection(cfg)
+	rows, err := connection.db.Query(context.Background(), queryDecryptionKeysByPreimage, hex.EncodeToString(identityPreimage[:]))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		rows.Scan(&identityPreimage, &seenSlot)
+		log.Println("seen at", seenSlot)
+	}
+	return nil
+}
+
 func blameValidator(submission Submission, cfg *Configuration) (ValidatorBlame, error) {
 	prefix := utils.PrefixFromBlockNumber(submission.trigger)
 	prefixBytes := prefix[:]
@@ -325,11 +349,17 @@ func blameValidator(submission Submission, cfg *Configuration) (ValidatorBlame, 
 	}
 	err := queryWhoToBlame(&blame, cfg)
 	if err != nil {
-		return blame, nil
+		return blame, err
 	}
 	err = queryDecryptionKeysBySlot(&blame, cfg)
 	if err != nil {
-		return blame, nil
+		return blame, err
+	}
+	if true || blame.decryptionKey.identityPreimage == nil {
+		err = checkSlotMismatch(&blame, cfg)
+		if err != nil {
+			return blame, err
+		}
 	}
 	return blame, nil
 }
@@ -371,7 +401,11 @@ func queryDecryptionKeysBySlot(blame *ValidatorBlame, cfg *Configuration) error 
 				eon:              eon,
 				identityPreimage: identityPreimage,
 			}
-			blame.decryptedTxHash = common.Hash(txHash)
+			if len(txHash) < 32 {
+				log.Println("received empty txhash", hex.EncodeToString(identityPreimage), txPointer, createdTs)
+			} else {
+				blame.decryptedTxHash = common.Hash(txHash)
+			}
 		}
 	}
 	// panic: runtime error: cannot convert slice with length 0 to array or pointer to array with length 32

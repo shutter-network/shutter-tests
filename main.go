@@ -77,6 +77,8 @@ func runContinous() {
 	if err != nil {
 		panic(err)
 	}
+	// todo: make a global new block subscriber, that will be used by all waiting functions
+	// this will allow to reduce the number of calls to `eth_subscribe`
 	fmt.Println("Running continous tx tests...")
 	lastStats := time.Now().Unix()
 	cache := continuous.BlockCache{}
@@ -91,7 +93,7 @@ func runContinous() {
 		continuous.CheckTxInFlight(block.Number, &cfg)
 		continuous.SendShutterizedTX(block.Number, block.Ts, &cfg)
 		now := time.Now().Unix()
-		if now-lastStats > 120 {
+		if now-lastStats > 12 {
 			log.Println("running stats")
 			lastStats = now
 			err = continuous.CollectContinuousTestStats(startBlock, uint64(block.Number), &cache, &cfg)

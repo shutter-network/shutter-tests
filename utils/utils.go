@@ -30,6 +30,9 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+const GnosisGenesisTimestamp = 1665396300
+const ChiadoGenesisTimestamp = 0
+
 func EnableExtLoggingFile() {
 	logFile, err := os.OpenFile(fmt.Sprintf("./logs/%s.log", time.Now().Format(time.RFC3339)), os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
@@ -61,7 +64,6 @@ func (acc *Account) UseNonce() *big.Int {
 	one := big.NewInt(1)
 	result := acc.Nonce
 	acc.Nonce = big.NewInt(0).Add(result, one)
-	// log.Println("UseNonce called for", acc.Address.Hex(), result, acc.Nonce)
 	return result
 }
 
