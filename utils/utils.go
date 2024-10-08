@@ -96,8 +96,8 @@ type StressEnvironment struct {
 	RandomIdentitySuffix  bool
 }
 
-type GasFeeCap *big.Int
-type GasTipCap *big.Int
+type GasFeeCap = *big.Int
+type GasTipCap = *big.Int
 
 type GasCalculation struct {
 	Fee GasFeeCap
@@ -144,6 +144,16 @@ func HighPriorityGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.
 	delta := big.NewInt(x)
 	gasFeeCap := big.NewInt(0).Add(feeCapAndTipCap, delta)
 	return gasFeeCap, suggestedGasTipCap
+}
+
+func Min1GweiGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, _ int, _ int) (GasFeeCap, GasTipCap) {
+	gasFeeCap, gasTipCap := DefaultGasPriceFn(suggestedGasTipCap, suggestedGasPrice, 0, 1)
+
+	GweiGasTip := big.NewInt(1_000_000_000)
+	if gasTipCap.Cmp(GweiGasTip) < 0 {
+		return gasFeeCap, GweiGasTip
+	}
+	return gasFeeCap, gasTipCap
 }
 
 type ConstraintFn func(inclusions []*types.Receipt) error
