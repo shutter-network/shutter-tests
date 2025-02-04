@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -416,6 +417,48 @@ func queryDecryptionKeysBySlot(blame *ValidatorBlame, cfg *Configuration) error 
 	return nil
 }
 
+func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Configuration) error {
+	queryStatusRatios := `
+	SELECT
+        COUNT(*) AS known_tx, 
+        SUM(CASE WHEN dt.tx_status='shielded inclusion' THEN 1.0 END)/COUNT(*) * 100 AS shielded_ratio,    
+        SUM(CASE WHEN dt.tx_status='unshielded inclusion' THEN 1.0 END)/COUNT(*) * 100 AS unshielded_ratio,
+        SUM(CASE WHEN dt.tx_status='not included' THEN 1.0 END)/COUNT(*) * 100 AS not_included_ratio,
+        SUM(CASE WHEN dt.tx_status='pending' THEN 1.0 END)/COUNT(*) * 100 AS missing_key_ratio
+        FROM decryption_key AS dk 
+                LEFT JOIN decrypted_tx AS dt
+                        ON dt.decryption_key_id=dk.id
+                LEFT JOIN block AS b
+                        ON b.slot=dt.slot 
+	WHERE 
+        SUBSTRING(
+                ENCODE(dk.identity_preimage, 'hex'),  --- encode preimage as hex string
+                65  --- match only sender suffix of identity_preimage
+        ) = $1  --- address of tester account
+	AND 
+        b.block_number BETWEEN $2 AND $3;`
+	connection := GetConnection(cfg)
+	rows, err := connection.db.Query(context.Background(), queryStatusRatios, strings.ToLower(cfg.submitAccount.Address.Hex())[2:], startBlock, endBlock)
+	if err != nil {
+		return err
+	}
+	var count uint64
+	var shielded, unshielded, notIncluded, missingKey float64
+	defer rows.Close()
+	for rows.Next() {
+		rows.Scan(&count, &shielded, &unshielded, &notIncluded, &missingKey)
+
+		_, err = fmt.Fprintf(w,
+			`%v tx found by observer
+%3.2f%% shielded
+%3.2f%% unshielded
+%3.2f%% not included
+%3.2f%% missing decryption key
+`, count, shielded, unshielded, notIncluded, missingKey)
+	}
+	return nil
+}
+
 func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cache *BlockCache, cfg *Configuration) error {
 	failCnt := 0
 	var failed []Submission
@@ -480,6 +523,7 @@ func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cache *Block
 		}
 		blames = append(blames, blame)
 	}
+
 	blameFile := path.Join(cfg.blameFolder, fmt.Sprint(time.Now().Unix())+".blame")
 	log.Println("writing blame to ", blameFile)
 	f, err := os.Create(blameFile)
@@ -493,6 +537,11 @@ func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cache *Block
 	if err != nil {
 		return err
 	}
+	err = queryStatusRatios(w, startBlock, endBlock, cfg)
+	if err != nil {
+		return err
+	}
+
 	_, err = fmt.Fprintf(w, "shutterized blocks %3.2f%%\n", shutterizedPct)
 	if err != nil {
 		return err
