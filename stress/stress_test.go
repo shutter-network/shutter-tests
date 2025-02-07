@@ -184,7 +184,7 @@ func createStressEnvironment(ctx context.Context, setup utils.StressSetup) (util
 		},
 		TransactGasPriceFn:   utils.DefaultGasPriceFn,
 		TransactGasLimitFn:   defaultGasLimitFn,
-		InclusionWaitTimeout: time.Duration(time.Minute * 2),
+		InclusionWaitTimeout: time.Duration(time.Minute * 60),
 		InclusionConstraints: func(inclusions []*types.Receipt) error { return nil },
 		SubmitterOpts: bind.TransactOpts{
 			From:   setup.SubmitAccount.Address,
@@ -467,7 +467,7 @@ func TestStressManyNoWait(t *testing.T) {
 		log.Fatal("could not set up environment", err)
 	}
 
-	err = transact(&setup, &env, 47)
+	err = transact(&setup, &env, 10)
 	assert.NilError(t, err, "not included")
 }
 

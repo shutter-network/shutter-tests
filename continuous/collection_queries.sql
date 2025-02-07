@@ -13,13 +13,13 @@ select decryption_keys_message_slot from decryption_key as dk left join decrypti
 SELECT
         COUNT(*) AS known_tx, 
         SUM(CASE WHEN dt.tx_status='shielded inclusion' THEN 1.0 END)/COUNT(*) * 100 AS shielded_ratio,    
-        SUM(CASE WHEN dt.tx_status='shielded inclusion' THEN 1.0 END) AS shielded_amount,    
+        SUM(CASE WHEN dt.tx_status='shielded inclusion' THEN 1 END) AS shielded_amount,    
         SUM(CASE WHEN dt.tx_status='unshielded inclusion' THEN 1.0 END)/COUNT(*) * 100 AS unshielded_ratio,
-        SUM(CASE WHEN dt.tx_status='unshielded inclusion' THEN 1.0 END) AS unshielded_amount,
+        SUM(CASE WHEN dt.tx_status='unshielded inclusion' THEN 1 END) AS unshielded_amount,
         SUM(CASE WHEN dt.tx_status='not included' THEN 1.0 END)/COUNT(*) * 100 AS not_included_ratio, 
-        SUM(CASE WHEN dt.tx_status='not included' THEN 1.0 END) not_included_amount, 
+        SUM(CASE WHEN dt.tx_status='not included' THEN 1 END) not_included_amount, 
         SUM(CASE WHEN dt.tx_status='pending' THEN 1.0 END)/COUNT(*) * 100 AS missing_key_ratio,
-        SUM(CASE WHEN dt.tx_status='pending' THEN 1.0 END) AS missing_key_amount
+        SUM(CASE WHEN dt.tx_status='pending' THEN 1 END) AS missing_key_amount
         FROM decryption_key AS dk 
                 LEFT JOIN decrypted_tx AS dt
                         ON dt.decryption_key_id=dk.id
@@ -52,6 +52,16 @@ RETURNS numeric
         language sql immutable PARALLEL safe
 RETURN (
     SELECT ('0x' || ENCODE(bytea_reverse(SUBSTRING($1 FROM 0 FOR 32)), 'hex'))::float::numeric);
+
+--- 2b) create reverse function blocknumber_to_prefix
+
+CREATE OR REPLACE FUNCTION blocknumber_to_prefix(bigint)
+RETURNS varchar
+        language sql immutable PARALLEL safe
+RETURN (
+    SELECT (
+        encode(bytea_reverse(decode(lpad(to_hex($1::bigint), 32, '0'), 'hex')), 'hex')
+    ));
 
 --- 3) extract block number identity prefix
 

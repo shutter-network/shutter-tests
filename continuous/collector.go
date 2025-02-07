@@ -422,9 +422,13 @@ func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Config
 	SELECT
         COUNT(*) AS known_tx, 
         SUM(CASE WHEN dt.tx_status='shielded inclusion' THEN 1.0 END)/COUNT(*) * 100 AS shielded_ratio,    
+        SUM(CASE WHEN dt.tx_status='shielded inclusion' THEN 1 END) AS shielded_amount,    
         SUM(CASE WHEN dt.tx_status='unshielded inclusion' THEN 1.0 END)/COUNT(*) * 100 AS unshielded_ratio,
-        SUM(CASE WHEN dt.tx_status='not included' THEN 1.0 END)/COUNT(*) * 100 AS not_included_ratio,
-        SUM(CASE WHEN dt.tx_status='pending' THEN 1.0 END)/COUNT(*) * 100 AS missing_key_ratio
+        SUM(CASE WHEN dt.tx_status='unshielded inclusion' THEN 1 END) AS unshielded_amount,
+        SUM(CASE WHEN dt.tx_status='not included' THEN 1.0 END)/COUNT(*) * 100 AS not_included_ratio, 
+        SUM(CASE WHEN dt.tx_status='not included' THEN 1 END) not_included_amount, 
+        SUM(CASE WHEN dt.tx_status='pending' THEN 1.0 END)/COUNT(*) * 100 AS pending_ratio,
+        SUM(CASE WHEN dt.tx_status='pending' THEN 1 END) AS pending_amount
         FROM decryption_key AS dk 
                 LEFT JOIN decrypted_tx AS dt
                         ON dt.decryption_key_id=dk.id
@@ -443,18 +447,24 @@ func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Config
 		return err
 	}
 	var count uint64
-	var shielded, unshielded, notIncluded, missingKey float64
+	var shielded, unshielded, notIncluded, pending float64
+	var shieldedAmount, unshieldedAmount, notIncludedAmount, pendingAmount int64
 	defer rows.Close()
 	for rows.Next() {
-		rows.Scan(&count, &shielded, &unshielded, &notIncluded, &missingKey)
+		rows.Scan(&count, &shielded, &shieldedAmount, &unshielded, &unshieldedAmount, &notIncluded, &notIncludedAmount, &pending, &pendingAmount)
 
 		_, err = fmt.Fprintf(w,
 			`%v tx found by observer
-%3.2f%% shielded
-%3.2f%% unshielded
-%3.2f%% not included
-%3.2f%% missing decryption key
-`, count, shielded, unshielded, notIncluded, missingKey)
+%3.2f%% shielded (%v/%v)
+%3.2f%% unshielded (%v/%v)
+%3.2f%% not included (%v/%v)
+%3.2f%% still pending (%v/%v)
+`,
+			count,
+			shielded, shieldedAmount, count,
+			unshielded, unshieldedAmount, count,
+			notIncluded, notIncludedAmount, count,
+			pending, pendingAmount, count)
 	}
 	return nil
 }
