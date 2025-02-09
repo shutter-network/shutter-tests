@@ -1,0 +1,19 @@
+# Set the terminal type and output file
+set terminal pngcairo size 1200, 600
+set output 'plot.png'
+
+# Set the title and labels
+set title 'Moving Average Over Time'
+set xlabel 'Hour'
+set ylabel 'Moving Average'
+
+# Set the x-axis to handle time format
+set xdata time
+set timefmt '%Y-%m-%d %H:%M:%S%z'
+set format x '%Y-%m-%d'
+
+# Load the data from the CSV file
+set datafile separator ','
+
+# Plot the data
+plot 'hourly.csv' using 1:2 with lines title 'Moving Average'
