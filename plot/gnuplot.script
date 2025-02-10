@@ -2,18 +2,31 @@
 set terminal pngcairo size 1200, 600
 set output 'plot.png'
 
+# Load the data from the CSV file
+set datafile separator ','
+stats 'hourly.csv' using 3
+f(x) = (x + 1) / STATS_max
+
 # Set the title and labels
-set title 'Moving Average Over Time'
+set title 'Hourly Inclusion Rate And TX Over Time'
 set xlabel 'Hour'
-set ylabel 'Moving Average'
+set ylabel 'Shielded Inclusion Rate'
+set y2label 'Number Of Encrypted TX'
+set yrange [0.0:1.0]
+set ytics 0.1
+set y2range [0:STATS_max]
+set y2tics 2
 
 # Set the x-axis to handle time format
 set xdata time
 set timefmt '%Y-%m-%d %H:%M:%S%z'
 set format x '%Y-%m-%d'
 
-# Load the data from the CSV file
-set datafile separator ','
+set style fill empty
+set boxwidth 1800 absolute
+set style line 1 lt 2 lw 2 pt 3 ps 0.5
+
 
 # Plot the data
-plot 'hourly.csv' using 1:2 with lines title 'Moving Average'
+plot 'hourly.csv' using 1:3 with boxes title 'TX/hour' axes x1y2,\
+      '' using 1:2 with lines ls 1 title 'avg inclusion rate'

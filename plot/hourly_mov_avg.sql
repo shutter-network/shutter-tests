@@ -12,14 +12,15 @@ WITH hourly_counts AS (
     FROM
         decrypted_tx
     WHERE
-	created_at > 'now'::timestamp - '1 month'::interval
+	created_at > 'now'::timestamp - '7 day'::interval
     GROUP BY
         hour
 ),
 moving_average AS (
     SELECT
         hour,
-        COALESCE(shielded_count::float / NULLIF(total_count, 0), 0) AS shielded_percentage
+        COALESCE(shielded_count::float / NULLIF(total_count, 0), 0) AS shielded_percentage,
+	total_count
     FROM
         hourly_counts
 ),
@@ -33,7 +34,8 @@ filled_intervals AS (
 )
 SELECT
     fi.hour,
-    COALESCE(ma.shielded_percentage, LAG(ma.shielded_percentage) OVER (ORDER BY fi.hour)) AS moving_average
+    COALESCE(ma.shielded_percentage, LAG(ma.shielded_percentage) OVER (ORDER BY fi.hour)) AS moving_average,
+    total_count
 FROM
     filled_intervals fi
 LEFT JOIN
