@@ -25,16 +25,18 @@ import (
 )
 
 type ValidatorBlame struct {
-	prefix          []byte
-	triggerBlock    int64
-	submitBlock     int64
-	targetBlock     int64
-	targetBlockTS   *pgtype.Date
-	targetSlot      int64
-	decryptedTxHash common.Hash
-	validatorIndex  int64
-	decryptionKey   DecryptionKey
-	sender          common.Address
+	prefix            []byte
+	triggerBlock      int64
+	submitBlock       int64
+	targetBlock       int64
+	targetBlockTS     *pgtype.Date
+	targetSlot        int64
+	decryptedTxHash   common.Hash
+	validatorIndex    int64
+	decryptionKey     DecryptionKey
+	sender            common.Address
+	proposerPublicKey string
+	credentials       common.Address
 }
 
 func (b ValidatorBlame) String() string {
@@ -42,6 +44,8 @@ func (b ValidatorBlame) String() string {
 	if b.decryptedTxHash == emptyHash {
 		return fmt.Sprintf(
 			"validator id\t: %v\n"+
+				"public key:\t %v\n"+
+				"withdrawal:\t %v\n"+
 				"triggered\t: %v\n"+
 				"submitted\t: %v\n"+
 				"target block\t: %v\n"+
@@ -52,6 +56,8 @@ func (b ValidatorBlame) String() string {
 				"prefix\t%v\n"+
 				"sender\t%v\n",
 			b.validatorIndex,
+			b.proposerPublicKey,
+			b.credentials.Hex(),
 			b.triggerBlock,
 			b.submitBlock,
 			b.targetBlock,
@@ -63,6 +69,8 @@ func (b ValidatorBlame) String() string {
 	} else {
 		return fmt.Sprintf(
 			"validator id\t: %v\n"+
+				"public key:\t %v\n"+
+				"withdrawal:\t %v\n"+
 				"triggered\t: %v\n"+
 				"submitted\t: %v\n"+
 				"target block\t: %v\n"+
@@ -72,6 +80,8 @@ func (b ValidatorBlame) String() string {
 				"decrypted tx\t: %v\n"+
 				"decryption key:\n%v\n",
 			b.validatorIndex,
+			b.proposerPublicKey,
+			b.credentials.Hex(),
 			b.triggerBlock,
 			b.submitBlock,
 			b.targetBlock,
@@ -108,6 +118,27 @@ func (d DecryptionKey) String() string {
 type Submission struct {
 	trigger   int64
 	sequenced int64
+}
+
+func withdrawAddressForPublicKey(proposerPublicKey string, cfg *Configuration) (*common.Address, error) {
+	fmt.Printf("proposer public key is %v\n", proposerPublicKey)
+	proposerKeyBytes, err := hex.DecodeString(proposerPublicKey[2:])
+	if err != nil {
+		fmt.Println("could not decode %v", err)
+		return nil, err
+	}
+	result, err := cfg.contracts.Depositcontract.ValidatorWithdrawalCredentials(&bind.CallOpts{
+		Pending: false,
+		Context: context.Background(),
+	}, proposerKeyBytes)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	fmt.Printf("got a result %v\n", result)
+	credentials := common.BytesToAddress(result[:])
+	fmt.Printf("credentials as hex %v\n", credentials.Hex())
+	return &credentials, nil
 }
 
 func collectSequencerEvents(startBlock uint64, endBlock uint64, cfg *Configuration) ([]Submission, error) {
@@ -287,7 +318,8 @@ func queryWhoToBlame(blame *ValidatorBlame, cfg *Configuration) error {
 		b.block_number,
 		b.slot,
 		v.validator_index,
-		to_timestamp(b.block_timestamp)
+		to_timestamp(b.block_timestamp),
+		p.public_key
 	FROM block AS b
 		LEFT JOIN proposer_duties AS p ON p.slot = b.slot
 		LEFT JOIN validator_status AS v ON v.validator_index = p.validator_index
@@ -301,12 +333,20 @@ func queryWhoToBlame(blame *ValidatorBlame, cfg *Configuration) error {
 		return err
 	}
 	defer rows.Close()
+	var publicKey string
 	for rows.Next() {
-		rows.Scan(&targetBlock, &targetSlot, &validatorIndex, &targetTS)
+		rows.Scan(&targetBlock, &targetSlot, &validatorIndex, &targetTS, &publicKey)
 		blame.targetBlock = targetBlock
 		blame.targetSlot = targetSlot
 		blame.targetBlockTS = targetTS
 		blame.validatorIndex = validatorIndex
+		blame.proposerPublicKey = publicKey
+		credentials, err := withdrawAddressForPublicKey(publicKey, cfg)
+		if err != nil {
+			fmt.Println("error getting withdrawal credentials %v", err)
+		}
+		blame.credentials = *credentials
+
 	}
 	if rows.Err() != nil {
 		log.Println("errors when finding validator to blame: ", rows.Err())

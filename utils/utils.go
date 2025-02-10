@@ -427,6 +427,8 @@ type Contracts struct {
 	KeyBroadcastContract     *keybroadcastcontract.Keybroadcastcontract
 	SequencerContractAddress common.Address
 	Sequencer                *sequencerBindings.Sequencer
+	Depositcontract          *Depositcontract
+	depositContractAddress   common.Address
 }
 
 func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress string) (Contracts, error) {
@@ -451,6 +453,13 @@ func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, Seque
 	}
 
 	setup.Sequencer = sequencerContract
+	// depositContractAddress := common.HexToAddress("0x4feF25519256e24A1FC536F7677152dA742Fe3Ef")
+	depositContractAddress := common.HexToAddress("0x0B98057eA310F4d31F2a452B414647007d1645d9")
+	depositContract, err := NewDepositcontract(depositContractAddress, client)
+	if err != nil {
+		return setup, fmt.Errorf("can not get DepositContract %v", err)
+	}
+	setup.Depositcontract = depositContract
 	return setup, nil
 }
 
