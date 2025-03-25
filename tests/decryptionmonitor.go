@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,8 +15,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 type RegisterIdentityRequest struct {
@@ -66,15 +65,15 @@ func RunDecryptionMonitor() {
 	baseURL := os.Getenv("SHUTTER_API")
 	seconds, err := strconv.Atoi(os.Getenv("API_REQUEST_INTERVAL"))
 	if err != nil {
-		log.Err(err).Msg("incorrect api request interval")
+		log.Fatalf("incorrect api request interval %s", err)
 		return
 	}
 	interval := time.Duration(seconds) * time.Second
 	address := os.Getenv("SHUTTER_REGISTRY_CALLER_ADDRESS")
 
-	fmt.Printf("Starting performance monitoring\n")
-	fmt.Printf("Base URL: %s\n", baseURL)
-	fmt.Printf("Interval: %v\n\n", interval)
+	log.Printf("Starting performance monitoring\n")
+	log.Printf("Base URL: %s\n", baseURL)
+	log.Printf("Interval: %v\n\n", interval)
 
 	// Setup graceful shutdown
 	signal.Notify(stopChan, syscall.SIGINT, syscall.SIGTERM)
@@ -100,7 +99,7 @@ func RunDecryptionMonitor() {
 
 	// Wait for interrupt signal
 	<-stopChan
-	fmt.Printf("\nShutting down...\n")
+	log.Printf("Shutting down...\n")
 
 	// Wait for all decryption requests to complete
 	wg.Wait()
@@ -110,25 +109,25 @@ func RunDecryptionMonitor() {
 }
 
 func printStatistics() {
-	fmt.Printf("\n=== Final Decryption Statistics ===\n")
-	fmt.Printf("Total decryption attempts: %d\n", stats.totalDecryptions.Load())
-	fmt.Printf("Successful decryptions: %d\n", stats.validDecryptions.Load())
-	fmt.Printf("Failed decryptions: %d\n", stats.invalidDecryptions.Load())
+	log.Printf("\n=== Final Decryption Statistics ===\n")
+	log.Printf("Total decryption attempts: %d\n", stats.totalDecryptions.Load())
+	log.Printf("Successful decryptions: %d\n", stats.validDecryptions.Load())
+	log.Printf("Failed decryptions: %d\n", stats.invalidDecryptions.Load())
 
 	total := stats.totalDecryptions.Load()
 	if total > 0 {
 		successRate := float64(stats.validDecryptions.Load()) / float64(total) * 100
-		fmt.Printf("Success rate: %.2f%%\n", successRate)
+		log.Printf("Success rate: %.2f%%\n", successRate)
 	}
 }
 
 func runFlow(baseURL, address string, wg *sync.WaitGroup) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Printf("\n=== Performance Check at %s ===\n", timestamp)
+	log.Printf("\n=== Performance Check at %s ===\n", timestamp)
 
 	encryptionData, err := getDataForEncryption(baseURL, address, "")
 	if err != nil {
-		log.Err(err).Msg("error in get data for encryption endpoint")
+		log.Fatalf("error in get data for encryption endpoint %s", err)
 		return
 	}
 
@@ -140,7 +139,7 @@ func runFlow(baseURL, address string, wg *sync.WaitGroup) {
 
 	err = registerIdentity(baseURL, registerReq)
 	if err != nil {
-		log.Err(err).Msg("error encountered while registering identity")
+		log.Fatalf("error encountered while registering identity %s", err)
 		return
 	}
 
@@ -154,12 +153,11 @@ func runFlow(baseURL, address string, wg *sync.WaitGroup) {
 		stats.totalDecryptions.Add(1)
 		err := getDecryptionKey(baseURL, identity)
 		if err != nil {
-			log.Err(err).Msg("error encountered while get decryption key")
+			log.Fatalf("error encountered while getting decryption key%s", err)
 			stats.invalidDecryptions.Add(1)
-			return
+		} else {
+			stats.validDecryptions.Add(1)
 		}
-
-		stats.validDecryptions.Add(1)
 	}(encryptionData["message"].Identity, decryptionTime)
 }
 
@@ -220,8 +218,6 @@ func registerIdentity(baseURL string, req RegisterIdentityRequest) error {
 		return fmt.Errorf("failed to read response: %v", err)
 	}
 
-	fmt.Println("StatusCode registerIdentity", resp.StatusCode, req.DecryptionTimestamp)
-
 	if resp.StatusCode != http.StatusOK {
 		var errorResp ErrorResponse
 		if err := json.Unmarshal(body, &errorResp); err != nil {
@@ -247,7 +243,6 @@ func getDecryptionKey(baseURL, identity string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read response: %v", err)
 	}
-	fmt.Println("StatusCode getDecryptionKey", resp.StatusCode, identity)
 	if resp.StatusCode != http.StatusOK {
 		var errorResp ErrorResponse
 		if err := json.Unmarshal(body, &errorResp); err != nil {
