@@ -33,20 +33,6 @@ var (
 	stopChan = make(chan os.Signal, 1)
 )
 
-type RegisterIdentityResponse struct {
-	Eon            uint64 `json:"eon"`
-	Identity       string `json:"identity"`
-	IdentityPrefix string `json:"identity_prefix"`
-	EonKey         string `json:"eon_key"`
-	TxHash         string `json:"tx_hash"`
-}
-
-type GetDecryptionKeyResponse struct {
-	DecryptionKey       string `json:"decryption_key"`
-	Identity            string `json:"identity"`
-	DecryptionTimestamp uint64 `json:"decryption_timestamp"`
-}
-
 type GetDataForEncryptionResponse struct {
 	Eon            uint64 `json:"eon"`
 	Identity       string `json:"identity"`
