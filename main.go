@@ -65,6 +65,12 @@ func main() {
 				runCollector()
 				wg.Done()
 			}()
+		case "decryption-monitor":
+			wg.Add(1)
+			go func() {
+				tests.RunDecryptionMonitor()
+				wg.Done()
+			}()
 		default:
 			log.Printf("Unknown mode: %s", m)
 		}
