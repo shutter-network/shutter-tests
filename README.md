@@ -1,5 +1,8 @@
 #  RPC Transaction Sender
 
+This is the README for the original `nethermind tests`. For `stress` and `continuous` tests, see
+`continuous/README.md` and `stress/README.md`.
+
 This application is designed to send transactions to chiado, gnosis or both at configurable intervals.
 
 ## Installation
