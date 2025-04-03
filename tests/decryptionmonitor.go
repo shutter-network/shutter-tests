@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,9 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/shutter-network/nethermind-tests/config"
 )
 
 type RegisterIdentityRequest struct {
@@ -47,7 +51,7 @@ type ErrorResponse struct {
 	StatusCode  int    `json:"statusCode"`
 }
 
-func RunDecryptionMonitor() {
+func RunDecryptionMonitor(cfg config.Config) {
 	baseURL := os.Getenv("SHUTTER_API")
 	seconds, err := strconv.Atoi(os.Getenv("API_REQUEST_INTERVAL"))
 	if err != nil {
@@ -66,9 +70,14 @@ func RunDecryptionMonitor() {
 
 	var wg sync.WaitGroup
 
+	client, err := ethclient.Dial(cfg.NodeURL)
+	if err != nil {
+		log.Fatalf("Failed to connect to the Ethereum client: %v", err)
+		return
+	}
 	// Start monitoring in separate goroutine
 	go func() {
-		runFlow(baseURL, address, &wg)
+		runFlow(client, baseURL, address, &wg)
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -76,7 +85,7 @@ func RunDecryptionMonitor() {
 		for {
 			select {
 			case <-ticker.C:
-				runFlow(baseURL, address, &wg)
+				runFlow(client, baseURL, address, &wg)
 			case <-stopChan:
 				return
 			}
@@ -107,7 +116,7 @@ func printStatistics() {
 	}
 }
 
-func runFlow(baseURL, address string, wg *sync.WaitGroup) {
+func runFlow(client *ethclient.Client, baseURL, address string, wg *sync.WaitGroup) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	log.Printf("\n=== Performance Check at %s ===\n", timestamp)
 
@@ -116,10 +125,14 @@ func runFlow(baseURL, address string, wg *sync.WaitGroup) {
 		log.Fatalf("error in get data for encryption endpoint %s", err)
 		return
 	}
-
-	decryptionTime := time.Now().Add(20 * time.Second)
+	block, err := client.BlockByNumber(context.Background(), nil)
+	if err != nil {
+		log.Fatalf("error from rpc while requesting for block %s", err)
+		return
+	}
+	decryptionTimestamp := block.Header().Time + 10
 	registerReq := RegisterIdentityRequest{
-		DecryptionTimestamp: decryptionTime.Unix(),
+		DecryptionTimestamp: int64(decryptionTimestamp),
 		IdentityPrefix:      encryptionData["message"].IdentityPrefix,
 	}
 
@@ -131,20 +144,25 @@ func runFlow(baseURL, address string, wg *sync.WaitGroup) {
 
 	// Launch decryption key request in separate goroutine
 	wg.Add(1)
-	go func(identity string, decryptTime time.Time) {
+	go func(identity string) {
 		defer wg.Done()
-		waitDuration := time.Until(decryptTime.Add(2 * time.Second))
 
-		time.Sleep(waitDuration)
+		seconds, err := strconv.Atoi(os.Getenv("DEC_KEY_WAIT_INTERVAL"))
+		if err != nil {
+			log.Fatalf("incorrect decryption key wait interval %s", err)
+			return
+		}
+
+		time.Sleep(time.Duration(seconds) * time.Second)
 		stats.totalDecryptions.Add(1)
-		err := getDecryptionKey(baseURL, identity)
+		err = getDecryptionKey(baseURL, identity)
 		if err != nil {
 			log.Fatalf("error encountered while getting decryption key%s", err)
 			stats.invalidDecryptions.Add(1)
 		} else {
 			stats.validDecryptions.Add(1)
 		}
-	}(encryptionData["message"].Identity, decryptionTime)
+	}(encryptionData["message"].Identity)
 }
 
 func getDataForEncryption(baseURL, address, identityPrefix string) (map[string]GetDataForEncryptionResponse, error) {

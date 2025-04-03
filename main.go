@@ -19,7 +19,7 @@ func main() {
 	var modes []string
 	var cfg config.Config
 	if len(os.Args[1:]) == 0 {
-		cfg := config.LoadConfig()
+		cfg = config.LoadConfig()
 		log.Println(cfg.Mode)
 		mode := cfg.Mode
 
@@ -68,7 +68,7 @@ func main() {
 		case "decryption-monitor":
 			wg.Add(1)
 			go func() {
-				tests.RunDecryptionMonitor()
+				tests.RunDecryptionMonitor(cfg)
 				wg.Done()
 			}()
 		default:
