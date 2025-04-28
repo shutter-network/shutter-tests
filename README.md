@@ -32,6 +32,12 @@ GNOSIS_SEND_INTERVAL="600"
 NODE_URL="https://erpc.chiado.staging.shutter.network"
 WAIT_TX_TIMEOUT=10
 TEST_DURATION=1
+
+#DECRYPTION MONITOR
+SHUTTER_API="http://shutter-api.shutter.network/api"
+API_REQUEST_INTERVAL="60"
+SHUTTER_REGISTRY_CALLER_ADDRESS="0x228DefCF37Da29475F0EE2B9E4dfAeDc3b0746bc"
+DEC_KEY_WAIT_INTERVAL="20"
 ```
 
 - `MODE=chiado`: Sends transactions at intervals defined by `CHIADO_SEND_INTERVAL` to the Chiado URL.
@@ -41,6 +47,7 @@ TEST_DURATION=1
   - waits for a timeout defined by `WAIT_TX_TIMEOUT`
   - then sends the next one at nonce `n+ 1`
   - test is run for the duration defined in `TEST_DURATION`
+-  `MODE=decryption-monitor`: Sends an HTTP request to register an identity at intervals defined by `API_REQUEST_INTERVAL` on the Shutter API, and monitors the release of relevant decryption keys by requesting them from the Shutter API at intervals defined by `DEC_KEY_WAIT_INTERVAL`. 
 
 - Multiple tests can be run at the same time by separating the different modes with a comma, i.e. `MODE="chiado,gnosis"`.
 
