@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -52,14 +51,9 @@ type ErrorResponse struct {
 }
 
 func RunDecryptionMonitor(cfg config.Config) {
-	baseURL := os.Getenv("SHUTTER_API")
-	seconds, err := strconv.Atoi(os.Getenv("API_REQUEST_INTERVAL"))
-	if err != nil {
-		log.Fatalf("incorrect api request interval %s", err)
-		return
-	}
-	interval := time.Duration(seconds) * time.Second
-	address := os.Getenv("SHUTTER_REGISTRY_CALLER_ADDRESS")
+	baseURL := cfg.ShutterAPI
+	interval := cfg.ApiRequestInterval
+	address := cfg.ShutterRegistryCaller
 
 	log.Printf("Starting performance monitoring\n")
 	log.Printf("Base URL: %s\n", baseURL)
@@ -77,7 +71,7 @@ func RunDecryptionMonitor(cfg config.Config) {
 	}
 	// Start monitoring in separate goroutine
 	go func() {
-		runFlow(client, baseURL, address, &wg)
+		runFlow(client, baseURL, address, &wg, cfg)
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -85,7 +79,7 @@ func RunDecryptionMonitor(cfg config.Config) {
 		for {
 			select {
 			case <-ticker.C:
-				runFlow(client, baseURL, address, &wg)
+				runFlow(client, baseURL, address, &wg, cfg)
 			case <-stopChan:
 				return
 			}
@@ -116,7 +110,7 @@ func printStatistics() {
 	}
 }
 
-func runFlow(client *ethclient.Client, baseURL, address string, wg *sync.WaitGroup) {
+func runFlow(client *ethclient.Client, baseURL, address string, wg *sync.WaitGroup, cfg config.Config) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	log.Printf("\n=== Performance Check at %s ===\n", timestamp)
 
@@ -147,13 +141,7 @@ func runFlow(client *ethclient.Client, baseURL, address string, wg *sync.WaitGro
 	go func(identity string) {
 		defer wg.Done()
 
-		seconds, err := strconv.Atoi(os.Getenv("DEC_KEY_WAIT_INTERVAL"))
-		if err != nil {
-			log.Fatalf("incorrect decryption key wait interval %s", err)
-			return
-		}
-
-		time.Sleep(time.Duration(seconds) * time.Second)
+		time.Sleep(cfg.DecryptionKeyWaitInterval)
 		stats.totalDecryptions.Add(1)
 		err = getDecryptionKey(baseURL, identity)
 		if err != nil {
