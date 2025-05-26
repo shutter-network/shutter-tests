@@ -102,12 +102,17 @@ func createSetup(fundNewAccount bool) (utils.StressSetup, error) {
 		return *setup, err
 	}
 
+	DepositContractAddress, err := utils.ReadStringFromEnv("STRESS_TEST_DEPOSIT_CONTRACT_ADDRESS")
+	if err != nil {
+		return *setup, err
+	}
+
 	SequencerContractAddress, err := utils.ReadStringFromEnv("STRESS_TEST_SEQUENCER_CONTRACT_ADDRESS")
 	if err != nil {
 		return *setup, err
 	}
 
-	contracts, err := utils.SetupContracts(client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress)
+	contracts, err := utils.SetupContracts(client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress, DepositContractAddress)
 	if err != nil {
 		return *setup, err
 	}

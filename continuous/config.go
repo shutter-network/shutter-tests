@@ -112,6 +112,10 @@ func createConfiguration() (Configuration, error) {
 	if err != nil {
 		return cfg, err
 	}
+	depositContractAddress, err := utils.ReadStringFromEnv("CONTINUOUS_DEPOSIT_CONTRACT_ADDRESS")
+	if err != nil {
+		return cfg, err
+	}
 	keyperSetAddress, err := utils.ReadStringFromEnv("CONTINUOUS_KEYPER_SET_CONTRACT_ADDRESS")
 	if err != nil {
 		return cfg, err
@@ -120,7 +124,7 @@ func createConfiguration() (Configuration, error) {
 	if err != nil {
 		return cfg, err
 	}
-	contracts, err := utils.SetupContracts(client, keyBroadcastAddress, sequencerAddress, keyperSetAddress)
+	contracts, err := utils.SetupContracts(client, keyBroadcastAddress, sequencerAddress, keyperSetAddress, depositContractAddress)
 	if err != nil {
 		return cfg, err
 	}

@@ -438,7 +438,7 @@ type Contracts struct {
 	depositContractAddress   common.Address
 }
 
-func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress string) (Contracts, error) {
+func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress, DepositContractAddress string) (Contracts, error) {
 	var setup Contracts
 	keyperSetManagerContract, err := keypersetmanager.NewKeypersetmanager(common.HexToAddress(KeyperSetManagerContractAddress), client)
 	if err != nil {
@@ -460,9 +460,7 @@ func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, Seque
 	}
 
 	setup.Sequencer = sequencerContract
-	// depositContractAddress := common.HexToAddress("0x4feF25519256e24A1FC536F7677152dA742Fe3Ef")
-	depositContractAddress := common.HexToAddress("0x0B98057eA310F4d31F2a452B414647007d1645d9")
-	depositContract, err := NewDepositcontract(depositContractAddress, client)
+	depositContract, err := NewDepositcontract(common.HexToAddress(DepositContractAddress), client)
 	if err != nil {
 		return setup, fmt.Errorf("can not get DepositContract %v", err)
 	}
