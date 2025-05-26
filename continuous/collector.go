@@ -517,15 +517,17 @@ func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cache *Block
 	if err != nil {
 		return err
 	}
-	submit, err := collectSequencerEvents(startBlock, endBlock, cfg)
-	if err != nil {
-		return err
-	}
+	log.Printf("found %v successful.", len(success))
 	successByTrigger := make(map[int64]Success)
 	for i := range success {
 		successByTrigger[success[i].trigger] = success[i]
 	}
 
+	submit, err := collectSequencerEvents(startBlock, endBlock, cfg)
+	if err != nil {
+		return err
+	}
+	log.Printf("found %v submissions.", len(submit))
 	for i := range submit {
 		trigger := submit[i].trigger
 		included, ok := successByTrigger[trigger]
