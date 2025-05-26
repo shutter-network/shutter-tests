@@ -539,22 +539,31 @@ func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cache *Block
 			failCnt++
 		}
 	}
-	failPct := (float64(failCnt) / float64(len(submit)) * 100)
-	avgDelay, err := stats.Mean(delays)
-	if err != nil {
-		return err
-	}
-	maxDelay, err := stats.Max(delays)
-	if err != nil {
-		return err
-	}
-	minDelay, err := stats.Min(delays)
-	if err != nil {
-		return err
-	}
-	medianDelay, err := stats.Median(delays)
-	if err != nil {
-		return err
+	var failPct, avgDelay, maxDelay, minDelay, medianDelay float64
+	if len(delays) > 0 {
+		failPct = (float64(failCnt) / float64(len(submit)) * 100)
+		avgDelay, err = stats.Mean(delays)
+		if err != nil {
+			return err
+		}
+		maxDelay, err = stats.Max(delays)
+		if err != nil {
+			return err
+		}
+		minDelay, err = stats.Min(delays)
+		if err != nil {
+			return err
+		}
+		medianDelay, err = stats.Median(delays)
+		if err != nil {
+			return err
+		}
+	} else {
+		failPct = 100
+		avgDelay = 0
+		maxDelay = 0
+		minDelay = 0
+		medianDelay = 0
 	}
 	lastValidTrigger := endBlock - 1
 	triggers, err := queryBlockTriggers(startBlock, lastValidTrigger, cfg)
