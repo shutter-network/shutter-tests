@@ -261,7 +261,7 @@ func collectSubmitIncomingTx(startBlock uint64, endBlock uint64, cache *BlockCac
 			num := big.NewInt(int64(blockNum))
 			block, err := cfg.client.BlockByNumber(context.Background(), num)
 			if err != nil {
-				return result, nil
+				return result, err
 			}
 			txs := block.Transactions()
 			var successForBlock []Success
