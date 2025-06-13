@@ -151,7 +151,7 @@ func Min1GweiGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int,
 
 	GweiGasTip := big.NewInt(1_000_000_000)
 	if gasTipCap.Cmp(GweiGasTip) < 0 {
-		return gasFeeCap, GweiGasTip
+		return big.NewInt(0).Add(GweiGasTip, gasFeeCap), GweiGasTip
 	}
 	return gasFeeCap, gasTipCap
 }
