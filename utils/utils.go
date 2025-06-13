@@ -149,7 +149,15 @@ func HighPriorityGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.
 func Min1GweiGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, _ int, _ int) (GasFeeCap, GasTipCap) {
 	gasFeeCap, gasTipCap := DefaultGasPriceFn(suggestedGasTipCap, suggestedGasPrice, 0, 1)
 
-	GweiGasTip := big.NewInt(1_000_000_000)
+	GweiGasTip := big.NewInt(1_000_000_000) // 1 Gwei
+	if minGasTipCap := os.Getenv("MIN_GAS_TIP_CAP"); minGasTipCap != "" {
+		minGasTip, err := strconv.Atoi(minGasTipCap)
+		if err != nil {
+			log.Println("could not parse MIN_GAS_TIP_CAP, using default 1 Gwei")
+		} else {
+			GweiGasTip = big.NewInt(int64(minGasTip))
+		}
+	}
 	if gasTipCap.Cmp(GweiGasTip) < 0 {
 		return big.NewInt(0).Add(GweiGasTip, gasFeeCap), GweiGasTip
 	}
