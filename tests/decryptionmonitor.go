@@ -2,7 +2,6 @@ package tests
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,13 +15,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/shutter-network/nethermind-tests/config"
 )
 
 type RegisterIdentityRequest struct {
 	DecryptionTimestamp int64  `json:"decryptionTimestamp"`
 	IdentityPrefix      string `json:"identityPrefix"`
+}
+
+type RegisterIdentityResponse struct {
+	Message RegisterIdentityMessage `json:"message"`
+}
+
+type RegisterIdentityMessage struct {
+	Eon            int64  `json:"eon"`
+	Identity       string `json:"identity"`
+	IdentityPrefix string `json:"identity_prefix"`
+	EonKey         string `json:"eon_key"`
+	TxHash         string `json:"tx_hash"`
 }
 
 type DecryptionStats struct {
@@ -64,14 +74,9 @@ func RunDecryptionMonitor(cfg config.Config) {
 
 	var wg sync.WaitGroup
 
-	client, err := ethclient.Dial(cfg.NodeURL)
-	if err != nil {
-		log.Fatalf("Failed to connect to the Ethereum client: %v", err)
-		return
-	}
 	// Start monitoring in separate goroutine
 	go func() {
-		runFlow(client, baseURL, address, &wg, cfg)
+		runFlow(baseURL, address, &wg, cfg)
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -79,7 +84,7 @@ func RunDecryptionMonitor(cfg config.Config) {
 		for {
 			select {
 			case <-ticker.C:
-				runFlow(client, baseURL, address, &wg, cfg)
+				runFlow(baseURL, address, &wg, cfg)
 			case <-stopChan:
 				return
 			}
@@ -110,7 +115,7 @@ func printStatistics() {
 	}
 }
 
-func runFlow(client *ethclient.Client, baseURL, address string, wg *sync.WaitGroup, cfg config.Config) {
+func runFlow(baseURL, address string, wg *sync.WaitGroup, cfg config.Config) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	log.Printf("\n=== Performance Check at %s ===\n", timestamp)
 
@@ -119,18 +124,13 @@ func runFlow(client *ethclient.Client, baseURL, address string, wg *sync.WaitGro
 		log.Fatalf("error in get data for encryption endpoint %s", err)
 		return
 	}
-	block, err := client.BlockByNumber(context.Background(), nil)
-	if err != nil {
-		log.Fatalf("error from rpc while requesting for block %s", err)
-		return
-	}
-	decryptionTimestamp := block.Header().Time + 10
+	decryptionTimestamp := time.Now().Unix() + 10
 	registerReq := RegisterIdentityRequest{
-		DecryptionTimestamp: int64(decryptionTimestamp),
+		DecryptionTimestamp: decryptionTimestamp,
 		IdentityPrefix:      encryptionData["message"].IdentityPrefix,
 	}
 
-	err = registerIdentity(baseURL, registerReq)
+	identity, err := registerIdentity(baseURL, registerReq)
 	if err != nil {
 		log.Fatalf("error encountered while registering identity %s", err)
 		return
@@ -140,17 +140,18 @@ func runFlow(client *ethclient.Client, baseURL, address string, wg *sync.WaitGro
 	wg.Add(1)
 	go func(identity string) {
 		defer wg.Done()
-
 		time.Sleep(cfg.DecryptionKeyWaitInterval)
+		fmt.Printf("Requesting decryption key for identity: %s\n, at time: %s\n", identity, time.Now().Format("2006-01-02 15:04:05"))
 		stats.totalDecryptions.Add(1)
 		err = getDecryptionKey(baseURL, identity)
 		if err != nil {
 			log.Fatalf("error encountered while getting decryption key%s", err)
 			stats.invalidDecryptions.Add(1)
 		} else {
+			fmt.Printf("Decryption key retrieved successfully for identity: %s\n, at time: %s\n", identity, time.Now().Format("2006-01-02 15:04:05"))
 			stats.validDecryptions.Add(1)
 		}
-	}(encryptionData["message"].Identity)
+	}(identity)
 }
 
 func getDataForEncryption(baseURL, address, identityPrefix string) (map[string]GetDataForEncryptionResponse, error) {
@@ -189,10 +190,10 @@ func getDataForEncryption(baseURL, address, identityPrefix string) (map[string]G
 	return response, nil
 }
 
-func registerIdentity(baseURL string, req RegisterIdentityRequest) error {
+func registerIdentity(baseURL string, req RegisterIdentityRequest) (string, error) {
 	jsonData, err := json.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request: %v", err)
+		return "", fmt.Errorf("failed to marshal request: %v", err)
 	}
 
 	resp, err := http.Post(
@@ -201,24 +202,28 @@ func registerIdentity(baseURL string, req RegisterIdentityRequest) error {
 		bytes.NewBuffer(jsonData),
 	)
 	if err != nil {
-		return fmt.Errorf("request failed: %v", err)
+		return "", fmt.Errorf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read response: %v", err)
+		return "", fmt.Errorf("failed to read response: %v", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		var errorResp ErrorResponse
 		if err := json.Unmarshal(body, &errorResp); err != nil {
-			return fmt.Errorf("failed to parse error response: %v", err)
+			return "", fmt.Errorf("failed to parse error response: %v", err)
 		}
-		return fmt.Errorf("response error %v", errorResp.Description)
+		return "", fmt.Errorf("response error %v", errorResp.Description)
 	}
-
-	return nil
+	var response RegisterIdentityResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("failed to parse response: %v", err)
+	}
+	fmt.Printf("Identity registered successfully: %s | tx: %s\n", response.Message.Identity, response.Message.TxHash)
+	return response.Message.Identity, nil
 }
 
 func getDecryptionKey(baseURL, identity string) error {
