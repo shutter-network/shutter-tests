@@ -1,5 +1,5 @@
 # Start from a Debian based image with Go installed
-FROM golang:1.22
+FROM golang:1.23
 
 # Set the current working directory inside the container
 WORKDIR /app
