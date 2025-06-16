@@ -23,6 +23,7 @@ type Config struct {
 	ShutterRegistryCallerNonce string
 	ApiRequestInterval         time.Duration
 	DecryptionKeyWaitInterval  time.Duration
+	BlameFolder                string
 }
 
 func LoadConfig() Config {
@@ -46,6 +47,7 @@ func LoadConfig() Config {
 		ApiRequestInterval:        time.Duration(GetEnvAsInt("API_REQUEST_INTERVAL")) * time.Second,
 		ShutterRegistryCaller:     os.Getenv("SHUTTER_REGISTRY_CALLER_ADDRESS"),
 		DecryptionKeyWaitInterval: time.Duration(GetEnvAsInt("DEC_KEY_WAIT_INTERVAL")) * time.Second,
+		BlameFolder:               os.Getenv("DECRYPTION_BLAME_FOLDER"),
 	}
 
 	return config

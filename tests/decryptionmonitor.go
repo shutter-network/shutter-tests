@@ -39,6 +39,7 @@ type DecryptionStats struct {
 	totalDecryptions   atomic.Int64
 	validDecryptions   atomic.Int64
 	invalidDecryptions atomic.Int64
+	errorMessages      []string
 }
 
 var (
@@ -99,10 +100,10 @@ func RunDecryptionMonitor(cfg config.Config) {
 	wg.Wait()
 
 	// Print final statistics
-	printStatistics()
+	printStatistics(cfg)
 }
 
-func printStatistics() {
+func printStatistics(cfg config.Config) {
 	log.Printf("\n=== Final Decryption Statistics ===\n")
 	log.Printf("Total decryption attempts: %d\n", stats.totalDecryptions.Load())
 	log.Printf("Successful decryptions: %d\n", stats.validDecryptions.Load())
@@ -113,6 +114,32 @@ func printStatistics() {
 		successRate := float64(stats.validDecryptions.Load()) / float64(total) * 100
 		log.Printf("Success rate: %.2f%%\n", successRate)
 	}
+
+	// Write to blame file if BlameFolder is set
+	if cfg.BlameFolder != "" {
+		blameFile := fmt.Sprintf("%s/%d.blame", cfg.BlameFolder, time.Now().Unix())
+		f, err := os.Create(blameFile)
+		if err != nil {
+			log.Printf("Failed to create blame file: %v", err)
+			return
+		}
+		defer f.Close()
+		fmt.Fprintf(f, "=== Final Decryption Statistics ===\n")
+		fmt.Fprintf(f, "Total decryption attempts: %d\n", stats.totalDecryptions.Load())
+		fmt.Fprintf(f, "Successful decryptions: %d\n", stats.validDecryptions.Load())
+		fmt.Fprintf(f, "Failed decryptions: %d\n", stats.invalidDecryptions.Load())
+		if total > 0 {
+			successRate := float64(stats.validDecryptions.Load()) / float64(total) * 100
+			fmt.Fprintf(f, "Success rate: %.2f%%\n", successRate)
+		}
+		if len(stats.errorMessages) > 0 {
+			fmt.Fprintf(f, "\nError Messages:\n")
+			for _, msg := range stats.errorMessages {
+				fmt.Fprintf(f, "%s\n", msg)
+			}
+		}
+		log.Printf("Wrote statistics to blame file: %s", blameFile)
+	}
 }
 
 func runFlow(baseURL, address string, wg *sync.WaitGroup, cfg config.Config) {
@@ -121,7 +148,9 @@ func runFlow(baseURL, address string, wg *sync.WaitGroup, cfg config.Config) {
 
 	encryptionData, err := getDataForEncryption(baseURL, address, "")
 	if err != nil {
-		log.Fatalf("error in get data for encryption endpoint %s", err)
+		log.Printf("error in get data for encryption endpoint %s", err)
+		stats.invalidDecryptions.Add(1)
+		stats.errorMessages = append(stats.errorMessages, fmt.Sprintf("Error in get data for encryption endpoint: %s", err))
 		return
 	}
 	decryptionTimestamp := time.Now().Unix() + 10
@@ -132,7 +161,9 @@ func runFlow(baseURL, address string, wg *sync.WaitGroup, cfg config.Config) {
 
 	identity, err := registerIdentity(baseURL, registerReq)
 	if err != nil {
-		log.Fatalf("error encountered while registering identity %s", err)
+		log.Printf("error encountered while registering identity %s", err)
+		stats.invalidDecryptions.Add(1)
+		stats.errorMessages = append(stats.errorMessages, fmt.Sprintf("Error encountered while registering identity: %s", err))
 		return
 	}
 
@@ -141,14 +172,15 @@ func runFlow(baseURL, address string, wg *sync.WaitGroup, cfg config.Config) {
 	go func(identity string) {
 		defer wg.Done()
 		time.Sleep(cfg.DecryptionKeyWaitInterval)
-		fmt.Printf("Requesting decryption key for identity: %s\n, at time: %s\n", identity, time.Now().Format("2006-01-02 15:04:05"))
+		fmt.Printf("Requesting decryption key for identity: %s, at time: %s\n", identity, time.Now().Format("2006-01-02 15:04:05"))
 		stats.totalDecryptions.Add(1)
 		err = getDecryptionKey(baseURL, identity)
 		if err != nil {
-			log.Fatalf("error encountered while getting decryption key%s", err)
+			log.Printf("error encountered while getting decryption key %s", err)
 			stats.invalidDecryptions.Add(1)
+			stats.errorMessages = append(stats.errorMessages, fmt.Sprintf("Error encountered while getting decryption key: %s", err))
 		} else {
-			fmt.Printf("Decryption key retrieved successfully for identity: %s\n, at time: %s\n", identity, time.Now().Format("2006-01-02 15:04:05"))
+			fmt.Printf("Decryption key retrieved successfully for identity: %s, at time: %s\n", identity, time.Now().Format("2006-01-02 15:04:05"))
 			stats.validDecryptions.Add(1)
 		}
 	}(identity)

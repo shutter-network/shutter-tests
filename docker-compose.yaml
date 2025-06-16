@@ -21,4 +21,5 @@ services:
       SHUTTER_REGISTRY_CALLER_ADDRESS:
       API_REQUEST_INTERVAL:
       DEC_KEY_WAIT_INTERVAL:
+      DECRYPTION_BLAME_FOLDER:
     # command: ./main
