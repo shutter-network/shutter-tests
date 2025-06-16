@@ -146,8 +146,7 @@ func HighPriorityGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.
 	return gasFeeCap, suggestedGasTipCap
 }
 
-func Min1GweiGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, _ int, _ int) (GasFeeCap, GasTipCap) {
-	gasFeeCap, gasTipCap := DefaultGasPriceFn(suggestedGasTipCap, suggestedGasPrice, 0, 1)
+func MinGasTipUpdateFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, _ int, _ int) (GasFeeCap, GasTipCap) {
 
 	GweiGasTip := big.NewInt(1_000_000_000) // 1 Gwei
 	if minGasTipCap := os.Getenv("MIN_GAS_TIP_CAP"); minGasTipCap != "" {
@@ -158,10 +157,10 @@ func Min1GweiGasPriceFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int,
 			GweiGasTip = big.NewInt(int64(minGasTip))
 		}
 	}
-	if gasTipCap.Cmp(GweiGasTip) < 0 {
-		return big.NewInt(0).Add(GweiGasTip, gasFeeCap), GweiGasTip
+	if suggestedGasTipCap.Cmp(GweiGasTip) < 0 {
+		return big.NewInt(0).Add(GweiGasTip, suggestedGasPrice), GweiGasTip
 	}
-	return gasFeeCap, gasTipCap
+	return suggestedGasPrice, suggestedGasTipCap
 }
 
 type ConstraintFn func(inclusions []*types.Receipt) error
