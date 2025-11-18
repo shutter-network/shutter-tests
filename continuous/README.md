@@ -33,6 +33,8 @@ export CONTINUOUS_DB_NAME=shutter_metrics
 export CONTINUOUS_PK_FILE=/home/konrad/Projects/nethermind-tests/pk.hex
 # where to store analysis files
 export CONTINUOUS_BLAME_FOLDER="/tmp/blame"
+# (optional) particular validator indices to monitor (comma-separated list)
+export CONTINUOUS_VALIDATOR_INDICES=
 ```
 
 Make sure, there is an [observer](https://github.com/shutter-network/observer) running and its database accessible as defined in the environment above.

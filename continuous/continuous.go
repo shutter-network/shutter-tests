@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,6 +85,8 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, cfg *Configuration) Shutte
 	connection := GetConnection(cfg)
 	block := int64(0)
 	var ts pgtype.Date
+
+	// Build query with optional validator index filter
 	query := `
 		SELECT
 			b.block_number,
@@ -95,9 +98,23 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, cfg *Configuration) Shutte
 			ON b.slot=p.slot
 		WHERE v.status = 'active_ongoing'
 		AND b.slot = p.slot
-		AND b.block_timestamp > $1;
-	`
-	rows, err := connection.db.Query(context.Background(), query, lastBlockTS.Time.Unix())
+		AND b.block_timestamp > $1`
+
+	args := []interface{}{lastBlockTS.Time.Unix()}
+
+	// Add validator index filter if specified
+	if len(cfg.validatorIndices) > 0 {
+		placeholders := make([]string, len(cfg.validatorIndices))
+		for i := range cfg.validatorIndices {
+			placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
+			args = append(args, cfg.validatorIndices[i])
+		}
+		query += fmt.Sprintf(` AND v.validator_index IN (%s)`, strings.Join(placeholders, ","))
+	}
+
+	query += `;`
+
+	rows, err := connection.db.Query(context.Background(), query, args...)
 	if err != nil {
 		panic(err)
 	}

@@ -6,6 +6,8 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/core/types"
@@ -15,18 +17,19 @@ import (
 )
 
 type Configuration struct {
-	accounts      []utils.Account
-	submitAccount utils.Account
-	client        *ethclient.Client
-	status        Status
-	contracts     utils.Contracts
-	chainID       *big.Int
-	DbUser        string
-	DbPass        string
-	DbAddr        string
-	DbName        string
-	PkFile        string
-	blameFolder   string
+	accounts         []utils.Account
+	submitAccount    utils.Account
+	client           *ethclient.Client
+	status           Status
+	contracts        utils.Contracts
+	chainID          *big.Int
+	DbUser           string
+	DbPass           string
+	DbAddr           string
+	DbName           string
+	PkFile           string
+	blameFolder      string
+	validatorIndices []int64
 	Connection
 }
 
@@ -158,5 +161,43 @@ func createConfiguration() (Configuration, error) {
 		blameFolder = tmp
 	}
 	cfg.blameFolder = blameFolder
+
+	// Read validator indices from environment (optional)
+	validatorIndicesStr := os.Getenv("CONTINUOUS_VALIDATOR_INDICES")
+	if validatorIndicesStr != "" {
+		indices, err := parseValidatorIndices(validatorIndicesStr)
+		if err != nil {
+			return cfg, fmt.Errorf("could not parse validator indices: %v", err)
+		}
+		cfg.validatorIndices = indices
+		log.Printf("Filtering by validator indices: %v\n", cfg.validatorIndices)
+	} else {
+		log.Println("No validator indices specified, running for all shutterized validators")
+	}
+
 	return cfg, nil
+}
+
+// parseValidatorIndices parses a comma-separated or space-separated string of validator indices
+func parseValidatorIndices(indicesStr string) ([]int64, error) {
+	// Try comma-separated first, then space-separated
+	separator := ","
+	if !strings.Contains(indicesStr, ",") {
+		separator = " "
+	}
+
+	parts := strings.Split(indicesStr, separator)
+	var indices []int64
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		index, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid validator index '%s': %v", part, err)
+		}
+		indices = append(indices, index)
+	}
+	return indices, nil
 }
