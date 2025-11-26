@@ -15,11 +15,11 @@ const NumFundedAccounts = 6
 const MinimalFunding = int64(500000000000000000) // 0.5 ETH in wei
 
 type Status struct {
-	statusModMutex          *sync.Mutex
-	lastShutterTS           pgtype.Date
-	txInFlight              []*ShutterTx
-	txDone                  []*ShutterTx
-	nextGraffitiShutterSlot int64
+	statusModMutex             *sync.Mutex
+	lastShutterTS              pgtype.Date
+	txInFlight                 []*ShutterTx
+	txDone                     []*ShutterTx
+	currentTargetedShutterSlot int64
 }
 
 func (s Status) TxCount() int {
@@ -83,9 +83,9 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock, cfg *Configuration, mode str
 				out <- newShutterBlock
 			}
 		case "graffiti":
-			newShutterBlock, graffitiShutterSlot := queryGraffitiNextShutterBlock(status.nextGraffitiShutterSlot, cfg)
+			newShutterBlock, currentTargetedShutterSlot := queryGraffitiNextShutterBlock(status.currentTargetedShutterSlot, cfg)
 			if !newShutterBlock.Ts.Time.IsZero() {
-				status.nextGraffitiShutterSlot = graffitiShutterSlot
+				status.currentTargetedShutterSlot = currentTargetedShutterSlot
 				// send event (block number, timestamp) to out channel
 				out <- newShutterBlock
 			}
@@ -133,7 +133,7 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, cfg *Configuration) Shutte
 	return res
 }
 
-func queryGraffitiNextShutterBlock(nextGraffitiShutterSlot int64, cfg *Configuration) (ShutterBlock, int64) {
+func queryGraffitiNextShutterBlock(currentTargetedShutterSlot int64, cfg *Configuration) (ShutterBlock, int64) {
 	connection := GetConnection(cfg)
 
 	query := `
@@ -192,7 +192,7 @@ func queryGraffitiNextShutterBlock(nextGraffitiShutterSlot int64, cfg *Configura
 	}
 
 	// Skip if a block was already returned for the same shutter slot
-	if nextSlot == nextGraffitiShutterSlot {
+	if nextSlot == currentTargetedShutterSlot {
 		return ShutterBlock{}, 0
 	}
 
