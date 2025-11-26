@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,10 +15,11 @@ const NumFundedAccounts = 6
 const MinimalFunding = int64(500000000000000000) // 0.5 ETH in wei
 
 type Status struct {
-	statusModMutex *sync.Mutex
-	lastShutterTS  pgtype.Date
-	txInFlight     []*ShutterTx
-	txDone         []*ShutterTx
+	statusModMutex              *sync.Mutex
+	lastShutterTS               pgtype.Date
+	txInFlight                  []*ShutterTx
+	txDone                      []*ShutterTx
+	currentTargetedShutterSlot int64
 }
 
 func (s Status) TxCount() int {
@@ -72,21 +72,84 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock, cfg *Configuration) {
 	for {
 		time.Sleep(waitBetweenQueries)
 		fmt.Printf(".")
-		newShutterBlock := queryNewestShutterBlock(status.lastShutterTS, cfg)
+		newShutterBlock, currentTargetedShutterSlot := queryNewestShutterBlock(status.lastShutterTS, status.currentTargetedShutterSlot, cfg)
 		if !newShutterBlock.Ts.Time.IsZero() {
 			status.lastShutterTS = newShutterBlock.Ts
+			status.currentTargetedShutterSlot = currentTargetedShutterSlot
 			// send event (block number, timestamp) to out channel
 			out <- newShutterBlock
 		}
 	}
 }
 
-func queryNewestShutterBlock(lastBlockTS pgtype.Date, cfg *Configuration) ShutterBlock {
+func queryNewestShutterBlock(lastBlockTS pgtype.Date, currentTargetedShutterSlot int64, cfg *Configuration) (ShutterBlock, int64) {
 	connection := GetConnection(cfg)
 	block := int64(0)
 	var ts pgtype.Date
 
-	// Build query with optional validator index filter
+	if len(cfg.validatorIndices) > 0 {
+		query := `
+			WITH current_block AS (
+				SELECT
+					block_number,
+					slot AS current_slot,
+					to_timestamp(block_timestamp) AS ts
+				FROM block
+				ORDER BY slot DESC
+				LIMIT 1
+			),
+			next_shutter AS (
+				SELECT
+					pd.validator_index,
+					pd.slot AS next_slot
+				FROM proposer_duties pd
+				JOIN validator_status vs
+					ON vs.validator_index = pd.validator_index
+				WHERE vs.status = 'active_ongoing'
+					AND pd.slot > (SELECT current_slot FROM current_block)
+				ORDER BY pd.slot ASC
+				LIMIT 1
+			)
+			SELECT
+				ns.next_slot,
+				ns.validator_index,
+				cb.block_number,
+				cb.ts
+			FROM next_shutter ns
+			JOIN current_block cb ON TRUE
+			WHERE ns.validator_index = ANY($1);
+		`
+
+		var validatorIndex int64
+		var nextSlot int64
+
+		row := connection.db.QueryRow(
+			context.Background(),
+			query,
+			cfg.validatorIndices,
+		)
+
+		err := row.Scan(&nextSlot, &validatorIndex, &block, &ts)
+		if err != nil {
+			return ShutterBlock{}, 0
+		}
+
+		// Skip if we have already targeted this slot
+		if nextSlot == currentTargetedShutterSlot {
+			return ShutterBlock{}, 0
+		}
+
+		log.Printf(
+			"FILTERED FUTURE SHUTTER MATCH: nextSlot=%d next_validator=%d current_block=%d ts=%v",
+			nextSlot, validatorIndex, block, ts.Time,
+		)
+
+		return ShutterBlock{
+			Number: block,
+			Ts:     ts,
+		}, nextSlot
+	}
+
 	query := `
 		SELECT
 			b.block_number,
@@ -98,23 +161,10 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, cfg *Configuration) Shutte
 			ON b.slot=p.slot
 		WHERE v.status = 'active_ongoing'
 		AND b.slot = p.slot
-		AND b.block_timestamp > $1`
+		AND b.block_timestamp > $1;
+	`
 
-	args := []interface{}{lastBlockTS.Time.Unix()}
-
-	// Add validator index filter if specified
-	if len(cfg.validatorIndices) > 0 {
-		placeholders := make([]string, len(cfg.validatorIndices))
-		for i := range cfg.validatorIndices {
-			placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
-			args = append(args, cfg.validatorIndices[i])
-		}
-		query += fmt.Sprintf(` AND v.validator_index IN (%s)`, strings.Join(placeholders, ","))
-	}
-
-	query += `;`
-
-	rows, err := connection.db.Query(context.Background(), query, args...)
+	rows, err := connection.db.Query(context.Background(), query, lastBlockTS.Time.Unix())
 	if err != nil {
 		panic(err)
 	}
@@ -134,7 +184,7 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, cfg *Configuration) Shutte
 	res := ShutterBlock{}
 	res.Number = block
 	res.Ts = ts
-	return res
+	return res, 0
 }
 
 func CheckTxInFlight(blockNumber int64, cfg *Configuration) {
