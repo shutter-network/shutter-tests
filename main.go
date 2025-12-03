@@ -79,7 +79,7 @@ func main() {
 }
 
 func runContinuous(mode string) {
-	cfg, err := continuous.Setup()
+	cfg, err := continuous.Setup(mode)
 	if err != nil {
 		panic(err)
 	}
@@ -112,7 +112,7 @@ func runContinuous(mode string) {
 
 func runCollector() {
 	start, end := utils.CollectBlockRangeFromArgs()
-	cfg, err := continuous.Setup()
+	cfg, err := continuous.Setup("collect")
 	if err != nil {
 		log.Fatal(err)
 	}

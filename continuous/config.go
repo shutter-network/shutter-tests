@@ -39,7 +39,7 @@ type GraffitiList struct {
 func (cfg *Configuration) NextAccount() *utils.Account {
 	return &cfg.accounts[cfg.status.TxCount()%len(cfg.accounts)]
 }
-func createConfiguration() (Configuration, error) {
+func createConfiguration(mode string) (Configuration, error) {
 	cfg := Configuration{
 		status: Status{
 			statusModMutex: &sync.Mutex{},
@@ -165,12 +165,18 @@ func createConfiguration() (Configuration, error) {
 	}
 	cfg.blameFolder = blameFolder
 
-	graffitiSet, err := loadGraffitiJSON()
-	if err != nil {
-		return cfg, err
+	// Only load graffiti JSON when running in graffiti mode
+	if mode == "graffiti" {
+		graffitiSet, err := loadGraffitiJSON()
+		if err != nil {
+			return cfg, err
+		}
+		cfg.GraffitiSet = graffitiSet
+	} else {
+		// Initialize empty map for non-graffiti mode
+		cfg.GraffitiSet = make(map[string]bool)
 	}
 
-	cfg.GraffitiSet = graffitiSet
 	return cfg, nil
 }
 

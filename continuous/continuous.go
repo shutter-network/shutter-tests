@@ -15,11 +15,11 @@ const NumFundedAccounts = 6
 const MinimalFunding = int64(500000000000000000) // 0.5 ETH in wei
 
 type Status struct {
-	statusModMutex             *sync.Mutex
-	lastShutterTS              pgtype.Date
-	txInFlight                 []*ShutterTx
-	txDone                     []*ShutterTx
-	currentTargetedShutterSlot int64
+	statusModMutex  *sync.Mutex
+	lastShutterTS   pgtype.Date
+	txInFlight      []*ShutterTx
+	txDone          []*ShutterTx
+	nextShutterSlot int64
 }
 
 func (s Status) TxCount() int {
@@ -83,9 +83,9 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock, cfg *Configuration, mode str
 				out <- newShutterBlock
 			}
 		case "graffiti":
-			newShutterBlock, currentTargetedShutterSlot := queryGraffitiNextShutterBlock(status.currentTargetedShutterSlot, cfg)
+			newShutterBlock, nextShutterSlot := queryGraffitiNextShutterBlock(status.nextShutterSlot, cfg)
 			if !newShutterBlock.Ts.Time.IsZero() {
-				status.currentTargetedShutterSlot = currentTargetedShutterSlot
+				status.nextShutterSlot = nextShutterSlot
 				// send event (block number, timestamp) to out channel
 				out <- newShutterBlock
 			}
@@ -133,11 +133,15 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, cfg *Configuration) Shutte
 	return res
 }
 
-func queryGraffitiNextShutterBlock(currentTargetedShutterSlot int64, cfg *Configuration) (ShutterBlock, int64) {
+func queryGraffitiNextShutterBlock(nextShutterSlot int64, cfg *Configuration) (ShutterBlock, int64) {
 	connection := GetConnection(cfg)
 
+	// This query processes the current Shutter block while simultaneously computing
+	// the next Shutter Slot. The transaction will be sent during the current Shutter
+	// block (the trigger block) for inclusion into the next Shutter Slot, but it will
+	// be tied to the current Shutter block using the identity prefix.
 	query := `
-		WITH current_block AS (
+		WITH current_shutter_block AS (
 			SELECT
 				block_number,
 				slot,
@@ -146,7 +150,7 @@ func queryGraffitiNextShutterBlock(currentTargetedShutterSlot int64, cfg *Config
 			ORDER BY slot DESC
 			LIMIT 1
 		),
-		next_shutter AS (
+		next_shutter_slot AS (
 			SELECT
 				pd.validator_index,
 				pd.slot AS next_slot
@@ -154,7 +158,7 @@ func queryGraffitiNextShutterBlock(currentTargetedShutterSlot int64, cfg *Config
 			JOIN validator_status vs
 				ON vs.validator_index = pd.validator_index
 			WHERE vs.status = 'active_ongoing'
-			AND pd.slot > (SELECT slot FROM current_block)
+			AND pd.slot > (SELECT slot FROM current_shutter_block)
 			ORDER BY pd.slot ASC
 			LIMIT 1
 		)
@@ -164,10 +168,10 @@ func queryGraffitiNextShutterBlock(currentTargetedShutterSlot int64, cfg *Config
 			vg.graffiti,
 			cb.block_number,
 			cb.ts
-		FROM next_shutter ns
+		FROM next_shutter_slot ns
 		JOIN validator_graffiti vg
 			ON vg.validator_index = ns.validator_index
-		JOIN current_block cb ON TRUE;
+		JOIN current_shutter_block cb ON TRUE;
 	`
 
 	var (
@@ -192,7 +196,7 @@ func queryGraffitiNextShutterBlock(currentTargetedShutterSlot int64, cfg *Config
 	}
 
 	// Skip if a block was already returned for the same shutter slot
-	if nextSlot == currentTargetedShutterSlot {
+	if nextSlot == nextShutterSlot {
 		return ShutterBlock{}, 0
 	}
 
@@ -254,6 +258,6 @@ func PrintAllTx(cfg *Configuration) {
 	}
 }
 
-func Setup() (Configuration, error) {
-	return createConfiguration()
+func Setup(mode string) (Configuration, error) {
+	return createConfiguration(mode)
 }
