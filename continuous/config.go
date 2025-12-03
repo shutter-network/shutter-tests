@@ -2,6 +2,7 @@ package continuous
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -27,13 +28,18 @@ type Configuration struct {
 	DbName        string
 	PkFile        string
 	blameFolder   string
+	GraffitiSet   map[string]bool
 	Connection
+}
+
+type GraffitiList struct {
+	Graffitis []string `json:"graffitis"`
 }
 
 func (cfg *Configuration) NextAccount() *utils.Account {
 	return &cfg.accounts[cfg.status.TxCount()%len(cfg.accounts)]
 }
-func createConfiguration() (Configuration, error) {
+func createConfiguration(mode string) (Configuration, error) {
 	cfg := Configuration{
 		status: Status{
 			statusModMutex: &sync.Mutex{},
@@ -158,5 +164,42 @@ func createConfiguration() (Configuration, error) {
 		blameFolder = tmp
 	}
 	cfg.blameFolder = blameFolder
+
+	// Only load graffiti JSON when running in graffiti mode
+	if mode == "graffiti" {
+		graffitiSet, err := loadGraffitiJSON()
+		if err != nil {
+			return cfg, err
+		}
+		cfg.GraffitiSet = graffitiSet
+	} else {
+		// Initialize empty map for non-graffiti mode
+		cfg.GraffitiSet = make(map[string]bool)
+	}
+
 	return cfg, nil
+}
+
+func loadGraffitiJSON() (map[string]bool, error) {
+	graffitiFilePath, err := utils.ReadStringFromEnv("GRAFFITI_FILE_PATH")
+	if err != nil {
+		return nil, fmt.Errorf("graffiti file path variable not set: %w", err)
+	}
+
+	data, err := os.ReadFile(graffitiFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("graffiti file not found: %w", err)
+	}
+
+	var gl GraffitiList
+	if err := json.Unmarshal(data, &gl); err != nil {
+		return nil, fmt.Errorf("invalid graffitis: %w", err)
+	}
+
+	graffitiSet := make(map[string]bool)
+	for _, g := range gl.Graffitis {
+		graffitiSet[g] = true
+	}
+
+	return graffitiSet, nil
 }

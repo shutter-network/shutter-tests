@@ -49,3 +49,50 @@ If you need to, you can do the analysis retroactively, by defining a block range
 ```
 ./bin/main collect $start-block $end-block
 ```
+
+# Continuous Graffiti Mode
+
+The continuous-graffiti mode is a specialized variant of the continuous test mode that targets specific validators based on their graffiti. Instead of sending transactions for every shutterized block, this mode:
+
+1. Queries the observer database to identify the next upcoming slot that will be proposed by a validator whose graffiti matches one of the configured graffiti values
+2. Sends encrypted transactions to the sequencer contract, targeting them to be included in that specific validator's slot
+3. Monitors transaction inclusion to analyze performance for validators with matching graffiti
+
+This allows for targeted testing and analysis of specific validator sets or operators identified by their graffiti strings.
+
+## Running Continuous Graffiti Mode
+
+To run the continuous-graffiti mode:
+
+```
+./bin/main continuous-graffiti
+```
+
+## Environment Variables
+
+In addition to all the environment variables required for standard continuous mode (listed above), continuous-graffiti mode requires one additional variable:
+
+```
+# Path to JSON file containing list of graffiti strings to match
+export GRAFFITI_FILE_PATH=/path/to/graffitis.json
+```
+
+### Graffiti File Format
+
+The graffiti file should be a JSON file with the following structure:
+
+```json
+{
+  "graffitis": [
+    "Erigon-Caplin-GSH-C1",
+    "gateway.fm",
+    "Twinstake",
+    "gnos"
+  ]
+}
+```
+
+The file should contain an array of graffiti strings that you want to target. The system will query the observer database to find validators whose graffiti matches any of these strings, and send transactions to be included in their slots.
+
+See `graffitis_example.json` in the project root for a reference example.
+

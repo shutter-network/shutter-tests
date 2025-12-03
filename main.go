@@ -53,7 +53,13 @@ func main() {
 		case "continuous":
 			wg.Add(1)
 			go func() {
-				runContinous()
+				runContinuous("standard")
+				wg.Done()
+			}()
+		case "continuous-graffiti":
+			wg.Add(1)
+			go func() {
+				runContinuous("graffiti")
 				wg.Done()
 			}()
 		case "collect":
@@ -72,8 +78,8 @@ func main() {
 	wg.Wait()
 }
 
-func runContinous() {
-	cfg, err := continuous.Setup()
+func runContinuous(mode string) {
+	cfg, err := continuous.Setup(mode)
 	if err != nil {
 		panic(err)
 	}
@@ -85,7 +91,7 @@ func runContinous() {
 	go continuous.PrimeBlockCache(&cache, &cfg)
 	startBlock := uint64(0)
 	blocks := make(chan continuous.ShutterBlock)
-	go continuous.QueryAllShutterBlocks(blocks, &cfg)
+	go continuous.QueryAllShutterBlocks(blocks, &cfg, mode)
 	for block := range blocks {
 		if startBlock == 0 {
 			startBlock = uint64(block.Number)
@@ -106,7 +112,7 @@ func runContinous() {
 
 func runCollector() {
 	start, end := utils.CollectBlockRangeFromArgs()
-	cfg, err := continuous.Setup()
+	cfg, err := continuous.Setup("collect")
 	if err != nil {
 		log.Fatal(err)
 	}
