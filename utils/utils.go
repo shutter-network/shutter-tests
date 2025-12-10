@@ -431,7 +431,22 @@ type Contracts struct {
 	depositContractAddress   common.Address
 }
 
-func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress string) (Contracts, error) {
+// GetDepositContractAddressByChainID returns the deposit contract address for the given chain ID
+// Chain IDs: Gnosis = 100, Chiado = 10200
+func GetDepositContractAddressByChainID(chainID *big.Int) (common.Address, error) {
+	var address common.Address
+	switch chainID.Uint64() {
+	case 100: // Gnosis Chain
+		address = common.HexToAddress("0x0B98057eA310F4d31F2a452B414647007d1645d9")
+	case 10200: // Chiado
+		address = common.HexToAddress("0xb97036A26259B7147018913bD58a774cf91acf25")
+	default:
+		return address, fmt.Errorf("unsupported chain ID: %v", chainID)
+	}
+	return address, nil
+}
+
+func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress string, chainID *big.Int) (Contracts, error) {
 	var setup Contracts
 	keyperSetManagerContract, err := keypersetmanager.NewKeypersetmanager(common.HexToAddress(KeyperSetManagerContractAddress), client)
 	if err != nil {
@@ -453,8 +468,10 @@ func SetupContracts(client *ethclient.Client, KeyBroadcastContractAddress, Seque
 	}
 
 	setup.Sequencer = sequencerContract
-	// depositContractAddress := common.HexToAddress("0x4feF25519256e24A1FC536F7677152dA742Fe3Ef")
-	depositContractAddress := common.HexToAddress("0x0B98057eA310F4d31F2a452B414647007d1645d9")
+	depositContractAddress, err := GetDepositContractAddressByChainID(chainID)
+	if err != nil {
+		return setup, fmt.Errorf("can not get deposit contract address: %v", err)
+	}
 	depositContract, err := NewDepositcontract(depositContractAddress, client)
 	if err != nil {
 		return setup, fmt.Errorf("can not get DepositContract %v", err)

@@ -107,7 +107,7 @@ func createSetup(fundNewAccount bool) (utils.StressSetup, error) {
 		return *setup, err
 	}
 
-	contracts, err := utils.SetupContracts(client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress)
+	contracts, err := utils.SetupContracts(client, KeyBroadcastContractAddress, SequencerContractAddress, KeyperSetManagerContractAddress, chainID)
 	if err != nil {
 		return *setup, err
 	}
