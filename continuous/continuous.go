@@ -33,8 +33,9 @@ func (s *Status) AddTxInFlight(t *ShutterTx) {
 }
 
 type ShutterBlock struct {
-	Number int64
-	Ts     pgtype.Date
+	Number       int64
+	Ts           pgtype.Date
+	TargetedSlot int64
 }
 
 func QueryAllShutterBlocks(out chan<- ShutterBlock, cfg *Configuration, mode string) {
@@ -83,9 +84,9 @@ func QueryAllShutterBlocks(out chan<- ShutterBlock, cfg *Configuration, mode str
 				out <- newShutterBlock
 			}
 		case "graffiti":
-			newShutterBlock, nextShutterSlot := queryGraffitiNextShutterBlock(status.nextShutterSlot, cfg)
+			newShutterBlock := queryGraffitiNextShutterBlock(status.nextShutterSlot, cfg)
 			if !newShutterBlock.Ts.Time.IsZero() {
-				status.nextShutterSlot = nextShutterSlot
+				status.nextShutterSlot = newShutterBlock.TargetedSlot
 				// send event (block number, timestamp) to out channel
 				out <- newShutterBlock
 			}
@@ -133,7 +134,7 @@ func queryNewestShutterBlock(lastBlockTS pgtype.Date, cfg *Configuration) Shutte
 	return res
 }
 
-func queryGraffitiNextShutterBlock(nextShutterSlot int64, cfg *Configuration) (ShutterBlock, int64) {
+func queryGraffitiNextShutterBlock(nextShutterSlot int64, cfg *Configuration) (ShutterBlock) {
 	connection := GetConnection(cfg)
 
 	// This query processes the current Shutter block while simultaneously computing
@@ -192,12 +193,12 @@ func queryGraffitiNextShutterBlock(nextShutterSlot int64, cfg *Configuration) (S
 		&ts,
 	)
 	if err != nil {
-		return ShutterBlock{}, 0
+		return ShutterBlock{}
 	}
 
 	// Skip if a block was already returned for the same shutter slot
 	if nextSlot == nextShutterSlot {
-		return ShutterBlock{}, 0
+		return ShutterBlock{}
 	}
 
 	if graffiti != "" && cfg.GraffitiSet[graffiti] {
@@ -205,9 +206,9 @@ func queryGraffitiNextShutterBlock(nextShutterSlot int64, cfg *Configuration) (S
 			"Graffiti slot and target block found: nextSlot=%d next_shutter_validator=%d graffiti=%s block=%d ts=%v",
 			nextSlot, validatorIndex, graffiti, blockNumber, ts.Time,
 		)
-		return ShutterBlock{Number: blockNumber, Ts: ts}, nextSlot
+		return ShutterBlock{Number: blockNumber, Ts: ts, TargetedSlot: nextSlot}
 	}
-	return ShutterBlock{}, 0
+	return ShutterBlock{}
 }
 
 func CheckTxInFlight(blockNumber int64, cfg *Configuration) {

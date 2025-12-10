@@ -457,18 +457,30 @@ func queryDecryptionKeysBySlot(blame *ValidatorBlame, cfg *Configuration) error 
 	return nil
 }
 
+// buildInnerTxHashToTargetSlotMap creates a map from inner transaction hash to targeted slot
+// using the in-memory transactions stored in cfg.status
+func buildInnerTxHashToTargetSlotMap(cfg *Configuration) map[string]int64 {
+	cfg.status.statusModMutex.Lock()
+	defer cfg.status.statusModMutex.Unlock()
+
+	innerTxHashToTargetSlot := make(map[string]int64)
+
+	allTxs := append(cfg.status.txInFlight, cfg.status.txDone...)
+	for _, tx := range allTxs {
+		if tx.innerTx != nil && tx.targetSlot != 0 {
+			innerTxHash := tx.innerTx.Hash().Hex()
+			innerTxHashToTargetSlot[innerTxHash] = tx.targetSlot
+		}
+	}
+	return innerTxHashToTargetSlot
+}
+
 func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Configuration) error {
 	queryStatusRatios := `
 	SELECT
-        COUNT(*) AS known_tx, 
-        SUM(CASE WHEN dt.tx_status='shielded inclusion' THEN 1.0 END)/COUNT(*) * 100 AS shielded_ratio,    
-        SUM(CASE WHEN dt.tx_status='shielded inclusion' THEN 1 END) AS shielded_amount,    
-        SUM(CASE WHEN dt.tx_status='unshielded inclusion' THEN 1.0 END)/COUNT(*) * 100 AS unshielded_ratio,
-        SUM(CASE WHEN dt.tx_status='unshielded inclusion' THEN 1 END) AS unshielded_amount,
-        SUM(CASE WHEN dt.tx_status='not included' THEN 1.0 END)/COUNT(*) * 100 AS not_included_ratio, 
-        SUM(CASE WHEN dt.tx_status='not included' THEN 1 END) not_included_amount, 
-        SUM(CASE WHEN dt.tx_status='pending' THEN 1.0 END)/COUNT(*) * 100 AS pending_ratio,
-        SUM(CASE WHEN dt.tx_status='pending' THEN 1 END) AS pending_amount
+        dt.tx_hash,
+        dt.tx_status,
+        dt.slot AS inclusion_slot
         FROM decryption_key AS dk 
                 LEFT JOIN decrypted_tx AS dt
                         ON dt.decryption_key_id=dk.id
@@ -487,26 +499,88 @@ func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Config
 		return err
 	}
 	var count uint64
-	var shielded, unshielded, notIncluded, pending float64
-	var shieldedAmount, unshieldedAmount, notIncludedAmount, pendingAmount int64
+	var shieldedAmount, unshieldedAmount, notIncludedAmount, pendingAmount, inTargetedSlotAmount int64
+
+	var txHash []byte
+	var txStatus string
+	var inclusionSlot *int64
+
+	isGraffitiMode := len(cfg.GraffitiSet) > 0
+	var innerTxHashToTargetSlot map[string]int64
+	if isGraffitiMode {
+		innerTxHashToTargetSlot = buildInnerTxHashToTargetSlotMap(cfg)
+	}
+
 	defer rows.Close()
 	for rows.Next() {
-		rows.Scan(&count, &shielded, &shieldedAmount, &unshielded, &unshieldedAmount, &notIncluded, &notIncludedAmount, &pending, &pendingAmount)
+		err = rows.Scan(&txHash, &txStatus, &inclusionSlot)
+		if err != nil {
+			log.Printf("Error scanning row: %v", err)
+			continue
+		}
 
-		_, err = fmt.Fprintf(w,
-			`%v tx found by observer
+		count++
+
+		switch txStatus {
+		case "shielded inclusion":
+			shieldedAmount++
+
+			// Check if included in targeted slot (only for shielded inclusions and in graffiti mode)
+			if isGraffitiMode && inclusionSlot != nil {
+				txHashHex := common.BytesToHash(txHash).Hex()
+				targetedSlot, exists := innerTxHashToTargetSlot[txHashHex]
+				if exists && targetedSlot != 0 && *inclusionSlot == targetedSlot {
+					inTargetedSlotAmount++
+				}
+			}
+		case "unshielded inclusion":
+			unshieldedAmount++
+		case "not included":
+			notIncludedAmount++
+		case "pending":
+			pendingAmount++
+		}
+	}
+
+	if rows.Err() != nil {
+		return rows.Err()
+	}
+
+	shielded := float64(shieldedAmount) / float64(count) * 100
+	unshielded := float64(unshieldedAmount) / float64(count) * 100
+	notIncluded := float64(notIncludedAmount) / float64(count) * 100
+	pending := float64(pendingAmount) / float64(count) * 100
+
+	var inTargetedSlot float64
+	if isGraffitiMode {
+		inTargetedSlot = float64(inTargetedSlotAmount) / float64(count) * 100
+	}
+
+	outputFormat := `%v tx found by observer
 %3.2f%% shielded (%v/%v)
 %3.2f%% unshielded (%v/%v)
 %3.2f%% not included (%v/%v)
 %3.2f%% still pending (%v/%v)
-`,
-			count,
-			shielded, shieldedAmount, count,
-			unshielded, unshieldedAmount, count,
-			notIncluded, notIncludedAmount, count,
-			pending, pendingAmount, count)
+`
+
+	outputArgs := []interface{}{
+		count,
+		shielded, shieldedAmount, count,
+		unshielded, unshieldedAmount, count,
+		notIncluded, notIncludedAmount, count,
+		pending, pendingAmount, count,
 	}
-	return nil
+
+	// Add targeted slot stat only in graffiti mode
+	if isGraffitiMode {
+		outputFormat += `
+%3.2f%% included in targeted slot (shielded) (%v/%v)`
+		outputArgs = append(outputArgs, inTargetedSlot, inTargetedSlotAmount, count)
+	}
+
+	_, err = fmt.Fprintf(w, outputFormat+"\n", outputArgs...)
+
+	return err
 }
 
 func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cache *BlockCache, cfg *Configuration) error {

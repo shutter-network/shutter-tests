@@ -97,7 +97,7 @@ func runContinuous(mode string) {
 			startBlock = uint64(block.Number)
 		}
 		continuous.CheckTxInFlight(block.Number, &cfg)
-		continuous.SendShutterizedTX(block.Number, block.Ts, &cfg)
+		continuous.SendShutterizedTX(block.Number, block.Ts, block.TargetedSlot, &cfg)
 		now := time.Now().Unix()
 		if now-lastStats > 12 {
 			log.Println("running stats")

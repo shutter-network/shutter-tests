@@ -24,6 +24,7 @@ type ShutterTx struct {
 	submissionBlock int64
 	inclusionBlock  int64
 	cancelBlock     int64
+	targetSlot      int64
 	txStatus        TxStatus
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -85,7 +86,7 @@ func (ts TxStatus) String() string {
 func (ts TxStatus) EnumIndex() int {
 	return int(ts)
 }
-func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Configuration) {
+func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, targetSlot int64, cfg *Configuration) {
 	account := cfg.NextAccount()
 	log.Printf("SENDING NEW TX FOR %v from %v", blockNumber, account.Address.Hex())
 	gasLimit := uint64(21000)
@@ -155,6 +156,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 		sender:       account,
 		prefix:       identityPrefix,
 		triggerBlock: blockNumber,
+		targetSlot:   targetSlot,
 		txStatus:     TxStatus(Signed),
 		ctx:          ctx,
 		cancel:       cancel,
