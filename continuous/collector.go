@@ -480,12 +480,17 @@ func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Config
 	SELECT
         dt.tx_hash,
         dt.tx_status,
-        dt.slot AS inclusion_slot
+        dt.slot AS inclusion_slot,
+        b_sequenced.slot AS sequenced_slot
         FROM decryption_key AS dk 
                 LEFT JOIN decrypted_tx AS dt
                         ON dt.decryption_key_id=dk.id
                 LEFT JOIN block AS b
                         ON b.slot=dt.slot 
+                LEFT JOIN transaction_submitted_event AS tse
+                        ON tse.id=dt.transaction_submitted_event_id
+                LEFT JOIN block AS b_sequenced
+                        ON b_sequenced.block_number=tse.event_block_number
 	WHERE 
         SUBSTRING(
                 ENCODE(dk.identity_preimage, 'hex'),  --- encode preimage as hex string
@@ -499,11 +504,12 @@ func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Config
 		return err
 	}
 	var count uint64
-	var shieldedAmount, unshieldedAmount, notIncludedAmount, pendingAmount, inTargetedSlotAmount int64
+	var shieldedAmount, unshieldedAmount, notIncludedAmount, pendingAmount, inTargetedSlotAmount, invalidForTargetAmount int64
 
 	var txHash []byte
 	var txStatus string
 	var inclusionSlot *int64
+	var sequencedSlot *int64
 
 	isGraffitiMode := len(cfg.GraffitiSet) > 0
 	var innerTxHashToTargetSlot map[string]int64
@@ -513,13 +519,22 @@ func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Config
 
 	defer rows.Close()
 	for rows.Next() {
-		err = rows.Scan(&txHash, &txStatus, &inclusionSlot)
+		err = rows.Scan(&txHash, &txStatus, &inclusionSlot, &sequencedSlot)
 		if err != nil {
 			log.Printf("Error scanning row: %v", err)
 			continue
 		}
 
 		count++
+
+		// Check if this is a late sequencer transaction (invalid for target)
+		if isGraffitiMode && sequencedSlot != nil {
+			txHashHex := common.BytesToHash(txHash).Hex()
+			targetedSlot, exists := innerTxHashToTargetSlot[txHashHex]
+			if exists && targetedSlot != 0 && *sequencedSlot >= targetedSlot {
+				invalidForTargetAmount++
+			}
+		}
 
 		switch txStatus {
 		case "shielded inclusion":
@@ -552,8 +567,10 @@ func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Config
 	pending := float64(pendingAmount) / float64(count) * 100
 
 	var inTargetedSlot float64
+	var invalidForTarget float64
 	if isGraffitiMode {
 		inTargetedSlot = float64(inTargetedSlotAmount) / float64(count) * 100
+		invalidForTarget = float64(invalidForTargetAmount) / float64(count) * 100
 	}
 
 	outputFormat := `%v tx found by observer
@@ -571,11 +588,12 @@ func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Config
 		pending, pendingAmount, count,
 	}
 
-	// Add targeted slot stat only in graffiti mode
+	// Add targeted slot stat and invalid for target stat only in graffiti mode
 	if isGraffitiMode {
 		outputFormat += `
-%3.2f%% included in targeted slot (shielded) (%v/%v)`
-		outputArgs = append(outputArgs, inTargetedSlot, inTargetedSlotAmount, count)
+%3.2f%% included in targeted slot (shielded) (%v/%v)
+%3.2f%% invalid for target (late sequencer transaction) (%v/%v)`
+		outputArgs = append(outputArgs, inTargetedSlot, inTargetedSlotAmount, count, invalidForTarget, invalidForTargetAmount, count)
 	}
 
 	_, err = fmt.Fprintf(w, outputFormat+"\n", outputArgs...)
