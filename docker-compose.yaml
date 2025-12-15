@@ -19,3 +19,38 @@ services:
       - TEST_DURATION=${TEST_DURATION}
 
     command: ./main
+
+  continuous:
+    build:
+      context: .
+    image: continuous-testing
+    container_name: continuous-test
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.env}
+    volumes:
+      - ${BLAME_DIR:-./data/blame}:/blame
+      - ./data/config:/config
+    networks:
+      - external-net
+    command: continuous
+
+  continuous-graffiti:
+    build:
+      context: .
+    image: continuous-testing
+    container_name: continuous-graffiti-test
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.mainnet-graffiti.env}
+    volumes:
+      - ${BLAME_DIR:-./data/graffiti-mainnet-blame}:/blame
+      - ./data/config:/config
+    networks:
+      - external-net
+    command: continuous-graffiti
+
+networks:
+  external-net:
+    external: true
+    name: ${DOCKER_NETWORK:-keyper-metrics_default}
