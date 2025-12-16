@@ -196,8 +196,8 @@ func queryGraffitiNextShutterBlock(nextShutterSlot int64, cfg *Configuration) (S
 		return ShutterBlock{}
 	}
 
-	// Skip if a block was already returned for the same shutter slot
-	if nextSlot == nextShutterSlot {
+	// Skip if a block was already returned for the same shutter slot or if there is a consecutive slot
+	if nextSlot <= nextShutterSlot + 1 {
 		return ShutterBlock{}
 	}
 
