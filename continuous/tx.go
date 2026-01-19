@@ -90,7 +90,7 @@ func SendShutterizedTX(blockNumber int64, lastTimestamp pgtype.Date, cfg *Config
 	log.Printf("SENDING NEW TX FOR %v from %v", blockNumber, account.Address.Hex())
 	gasLimit := uint64(21000)
 	var data []byte
-	gas, err := utils.GasCalculationFromClient(context.Background(), cfg.client, utils.Min1GweiGasPriceFn)
+	gas, err := utils.GasCalculationFromClient(context.Background(), cfg.client, utils.MinGasTipUpdateFn)
 	if err != nil {
 		panic(err)
 	}
