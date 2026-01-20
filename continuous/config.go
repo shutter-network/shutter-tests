@@ -126,7 +126,7 @@ func createConfiguration(mode string) (Configuration, error) {
 	if err != nil {
 		return cfg, err
 	}
-	contracts, err := utils.SetupContracts(client, keyBroadcastAddress, sequencerAddress, keyperSetAddress)
+	contracts, err := utils.SetupContracts(client, keyBroadcastAddress, sequencerAddress, keyperSetAddress, chainID)
 	if err != nil {
 		return cfg, err
 	}
