@@ -160,6 +160,9 @@ func MinGasTipUpdateFn(suggestedGasTipCap *big.Int, suggestedGasPrice *big.Int, 
 	if suggestedGasTipCap.Cmp(GweiGasTip) < 0 {
 		return big.NewInt(0).Add(GweiGasTip, suggestedGasPrice), GweiGasTip
 	}
+	if suggestedGasTipCap.Cmp(suggestedGasPrice) > 0 {
+		return big.NewInt(0).Add(suggestedGasTipCap, suggestedGasPrice), suggestedGasTipCap
+	}
 	return suggestedGasPrice, suggestedGasTipCap
 }
 
