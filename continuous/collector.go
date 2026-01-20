@@ -599,6 +599,11 @@ func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Config
 		return rows.Err()
 	}
 
+	if count == 0 {
+		_, err = fmt.Fprintf(w, "No transactions found for status ratios between blocks %v and %v\n", startBlock, endBlock)
+		return err
+	}
+
 	shielded := float64(shieldedAmount) / float64(count) * 100
 	unshielded := float64(unshieldedAmount) / float64(count) * 100
 	notIncluded := float64(notIncludedAmount) / float64(count) * 100
