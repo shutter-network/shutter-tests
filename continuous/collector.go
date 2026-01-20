@@ -172,8 +172,11 @@ func collectSequencerEvents(startBlock uint64, endBlock uint64, cfg *Configurati
 }
 
 type Success struct {
-	trigger  int64
-	included int64
+	trigger         int64
+	included        int64
+	validatorIndex  int64
+	graffiti        string
+	decryptedTxHash common.Hash
 }
 
 type BlockCache struct {
@@ -267,7 +270,22 @@ func collectSubmitIncomingTx(startBlock uint64, endBlock uint64, cache *BlockCac
 			var successForBlock []Success
 			for _, tx := range txs {
 				if tx.To() != nil && tx.To().Hex() == cfg.submitAccount.Address.Hex() {
-					success := Success{tx.Value().Int64(), block.Number().Int64()}
+					blockNumber := block.Number().Int64()
+
+					validatorIndex, graffiti, err := queryValidatorInfoForBlock(blockNumber, cfg)
+					if err != nil {
+						log.Printf("Error querying validator info for block %d: %v", blockNumber, err)
+						validatorIndex = 0
+						graffiti = ""
+					}
+
+					success := Success{
+						trigger:         tx.Value().Int64(), // this is the block number we submitted for, tx value holds it
+						included:        blockNumber,
+						validatorIndex:  validatorIndex,
+						graffiti:        graffiti,
+						decryptedTxHash: tx.Hash(),
+					}
 					result = append(result, success)
 					successForBlock = append(successForBlock, success)
 				}
@@ -475,6 +493,26 @@ func buildInnerTxHashToTargetSlotMap(cfg *Configuration) map[string]int64 {
 	return innerTxHashToTargetSlot
 }
 
+func queryValidatorInfoForBlock(blockNumber int64, cfg *Configuration) (int64, string, error) {
+	query := `
+		SELECT
+			p.validator_index,
+			COALESCE(vg.graffiti, '') AS graffiti
+		FROM block AS b
+			LEFT JOIN proposer_duties AS p ON p.slot = b.slot
+			LEFT JOIN validator_graffiti AS vg ON vg.validator_index = p.validator_index
+		WHERE b.block_number = $1
+		LIMIT 1;`
+	connection := GetConnection(cfg)
+	var validatorIndex int64
+	var graffiti string
+	err := connection.db.QueryRow(context.Background(), query, blockNumber).Scan(&validatorIndex, &graffiti)
+	if err != nil {
+		return 0, "", err
+	}
+	return validatorIndex, graffiti, nil
+}
+
 func queryStatusRatios(w *bufio.Writer, startBlock, endBlock uint64, cfg *Configuration) error {
 	queryStatusRatios := `
 	SELECT
@@ -618,12 +656,14 @@ func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cache *Block
 		successByTrigger[success[i].trigger] = success[i]
 	}
 
+	var successful []Success
 	for i := range submit {
 		trigger := submit[i].trigger
 		included, ok := successByTrigger[trigger]
 		if ok {
 			delay := float64(included.included - submit[i].sequenced)
 			delays = append(delays, delay)
+			successful = append(successful, included)
 		} else {
 			failed = append(failed, submit[i])
 			failCnt++
@@ -700,6 +740,24 @@ func CollectContinuousTestStats(startBlock uint64, endBlock uint64, cache *Block
 	if err != nil {
 		return err
 	}
+
+	_, err = fmt.Fprintf(w, "=== Information about successful transaction inclusions ===\n")
+	if err != nil {
+		return err
+	}
+
+	for _, s := range successful {
+		_, err = fmt.Fprintln(w, s)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = fmt.Fprintf(w, "=== Information about failed blames ===\n")
+	if err != nil {
+		return err
+	}
+
 	for _, blame := range blames {
 		_, err = fmt.Fprintln(w, blame)
 		if err != nil {
