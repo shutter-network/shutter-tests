@@ -280,7 +280,7 @@ func collectSubmitIncomingTx(startBlock uint64, endBlock uint64, cache *BlockCac
 					}
 
 					success := Success{
-						trigger:         tx.Value().Int64(),
+						trigger:         tx.Value().Int64(), // this is the block number we submitted for, tx value holds it
 						included:        blockNumber,
 						validatorIndex:  validatorIndex,
 						graffiti:        graffiti,
